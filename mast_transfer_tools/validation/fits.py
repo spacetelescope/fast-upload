@@ -326,5 +326,6 @@ def check_file(hdul: fits.HDUList, spec: Filetype) -> dict[str, list[str]]:
 
     while hdu_ix < len(hdul):
         failures[f"{hdu_ix}/base"] = ["extra"]
+        hdu_ix += 1
 
     return failures
