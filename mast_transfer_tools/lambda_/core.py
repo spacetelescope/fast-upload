@@ -292,8 +292,7 @@ def main(
     if tconfig_err is not None:
         return tconfig_err
     vtask_name = names.validation_task(dataset, delivery_id)
-    print("checking validation task list\n")
-    running_tasks = ls_tasks(name=vtask_name, status="RUNNING")
+    running_tasks = ls_tasks(cluster=tconfig["cluster"], name=vtask_name, status="RUNNING")
     if len(running_tasks) > 0:
         # This most likely indicates a duplicate execution. It could also
         # indicate a task that failed to stop when done.
@@ -319,7 +318,8 @@ def main(
         run_validation_task(
             dataset, delivery_id, event["transfer_type"], tags, tconfig
         )
-        task = ECSTask(ls_tasks(name=vtask_name)[0])
+        task = ECSTask(ls_tasks(cluster=tconfig["cluster"], name=vtask_name)[0])
+        print(f"found task '{task['task']}' with status '{task['status']}'")
         task.wait_while_pending(timeout=80)
         print("task is running\n")
     except Exception as ex:
