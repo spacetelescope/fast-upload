@@ -181,7 +181,7 @@ def populate_label(
         covered_files_iter = parsed_label.covered_files_s3(bucket, prefix)
     for fpath, ftypes in covered_files_iter:
         if bucket is None:
-            fpath = source / fpath
+            fpath = prefix / fpath
         match len(ftypes):
             case 0:
                 unmatched.append(fpath)
