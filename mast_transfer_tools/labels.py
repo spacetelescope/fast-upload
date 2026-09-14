@@ -871,8 +871,8 @@ class Label(LabelElement):
     def covered_files_local(
         self, dir: Path
     ) -> Iterable[tuple[Path, list[Filetype]]]:
-        """Yield Path objects for all of the files below DIR.  Each is paired
-        with a list of all the Filetype objects that can apply to it.
+        """Yield Path objects for all of the files below DIR, relative to DIR.
+        Each is paired with a list of all the Filetype objects that can apply to it.
         DIR must be a directory on disk.
         """
         for entry in path_walk(dir):
@@ -887,7 +887,7 @@ class Label(LabelElement):
                 # the label in the label, so if a file with exactly that path
                 # exists and is not covered by the label, don't yield it.
                 if ftypes or epath != dir / "CONTENTS.YML":
-                    yield (epath, ftypes)
+                    yield (entry.path, ftypes)
 
             elif entry.is_dir(follow_symlinks=False):
                 continue

@@ -12,6 +12,7 @@ Tests of the Label data structure in isolation
 from datetime import date
 from inspect import getmembers
 from itertools import chain
+from pathlib import Path
 from re import compile as re_compile
 from string import ascii_letters, ascii_lowercase, digits
 from typing import Any, Literal, Sequence
@@ -1190,3 +1191,16 @@ def test_good_Label(inp: dict[str, Any]) -> None:
     """
     obj = labels.Label.from_yaml(to_yaml_repr(inp))
     check_Label(inp, obj)
+
+
+def test_covered_files_local(label_file: Path, data_dir: Path) -> None:
+    """Test finding local files and the filetypes that cover them."""
+    label = labels.Label.from_file(label_file)
+    text_filetype = label.filetypes["text"]
+
+    covered_files = dict(label.covered_files_local(data_dir))
+
+    assert covered_files == {
+        Path("a.txt"): [text_filetype],
+        Path("nested/b.txt"): [text_filetype],
+    }
