@@ -8,7 +8,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from io import BufferedIOBase
-from os import SEEK_SET
+from os import SEEK_CUR, SEEK_END, SEEK_SET
 
 from hostess.aws.s3 import Bucket
 
@@ -135,7 +135,17 @@ class S3Reader(BufferedIOBase):
         return False
 
     def seek(self, offset: int, whence: int = SEEK_SET, /) -> int:
-        return self._cache_file.seek(offset, whence)
+        if self.closed:
+            raise ValueError("I/O operation on closed file")
+        if whence == SEEK_END:
+            position = self._object_size + offset
+        elif whence == SEEK_CUR:
+            position = self.tell() + offset
+        elif whence == SEEK_SET:
+            position = offset
+        else:
+            raise ValueError(f"invalid whence: {whence}")
+        return self._cache_file.seek(position, SEEK_SET)
 
     def tell(self) -> int:
         return self._cache_file.tell()

@@ -1,4 +1,4 @@
-from os import SEEK_SET
+from os import SEEK_CUR, SEEK_END, SEEK_SET
 
 from mast_transfer_tools.io.s3 import S3Reader
 from mast_transfer_tools.tests.mock_buckets import FakeReadOnlyDataBucket
@@ -68,6 +68,19 @@ def do_test_S3Reader_read(
 def test_S3Reader_read_whole_file(tc: tuple[str, int]) -> None:
     name, length = tc
     do_test_S3Reader_read(name, length, [(0, length)])
+
+
+def test_S3Reader_seek_from_logical_end() -> None:
+    bucket = FakeReadOnlyDataBucket("test_S3Reader")
+    name = "u1-100"
+    data = bucket.get_test_file(name)
+
+    with S3Reader(bucket, name, chunk_size=CHUNK_SIZE) as reader:
+        assert reader.seek(0, SEEK_END) == len(data)
+        assert reader.seek(-4, SEEK_END) == len(data) - 4
+        assert reader.read(4) == data[-4:]
+        assert reader.seek(-2, SEEK_CUR) == len(data) - 2
+        assert reader.read(2) == data[-2:]
 
 
 @given(tc=fake_file(), data=st.data())
