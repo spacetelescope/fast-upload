@@ -319,7 +319,7 @@ def main(
             dataset, delivery_id, event["transfer_type"], tags, tconfig
         )
         task = ECSTask(ls_tasks(cluster=tconfig["cluster"], name=vtask_name)[0])
-        print(f"found task '{task['task']}' with status '{task['status']}'")
+        print(f"found task '{task.task}' with status '{task.status}'")
         task.wait_while_pending(timeout=80)
         print("task is running\n")
     except Exception as ex:
