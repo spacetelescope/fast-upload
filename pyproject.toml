@@ -35,6 +35,7 @@ dependencies = [
     "click",
     "cytoolz",
     "dustgoggles",
+    "fsspec>=2026.9.0",
     "hostess[aws]",
     "numpy",
     "pandas",
@@ -43,6 +44,7 @@ dependencies = [
     "pyyaml",
     "requests",
     "rich",
+    "s3fs>=0.4.2",
 ]
 
 [project.optional-dependencies]
