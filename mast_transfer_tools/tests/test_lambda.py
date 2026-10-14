@@ -271,6 +271,51 @@ def test_lambda_launches_validation_task_and_cleans_lambda_lock(
 
 
 @pytest.mark.parametrize(
+    "logs",
+    [
+        ["encountered unhandled exception: startup failed"],
+        [
+            "Initializing pipeline for tests",
+            "encountered unhandled exception: startup failed",
+        ],
+    ],
+    ids=["exception-only", "exception-and-initialization"],
+)
+def test_lambda_reports_pipeline_startup_exception(
+    monkeypatch: pytest.MonkeyPatch,
+    logs: list[str],
+) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    log_polls: list[None] = []
+
+    class RecordingECSTask(FakeECSTask):
+        def __init__(self, task: dict[str, Any]) -> None:
+            super().__init__(task, logs)
+
+        def get_logs(self) -> list[str]:
+            log_polls.append(None)
+            return super().get_logs()
+
+    monkeypatch.setattr(lambda_core, "ECSTask", RecordingECSTask)
+    time_calls: list[None] = []
+
+    def start_time() -> float:
+        if time_calls:
+            pytest.fail("startup failure should return before checking timeout")
+        time_calls.append(None)
+        return 0
+
+    monkeypatch.setattr(lambda_core.time, "time", start_time)
+
+    response = lambda_core.main(event(), object())
+
+    assert response == "pipeline application failed to start"
+    assert log_polls == [None]
+    assert time_calls == [None]
+    assert_lambda_lock_was_written_and_removed(rig)
+
+
+@pytest.mark.parametrize(
     ("case", "rig_kwargs", "expected_step"),
     [
         (
