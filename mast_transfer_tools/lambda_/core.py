@@ -342,6 +342,11 @@ def main(
     while True:
         logs = task.get_logs()
         if len(logs) > 0 and any(
+            l.startswith("encountered unhandled exception") for l in logs
+        ):
+            print("pipeline application failed to start (exception)\n")
+            return "pipeline application failed to start"
+        if len(logs) > 0 and any(
             l.startswith("Initializing pipeline") for l in logs
         ):
             break

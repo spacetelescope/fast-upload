@@ -3,6 +3,7 @@ Tests of parsing and serialization of Label objects from/to YAML.
 """
 
 from datetime import date
+from io import StringIO, UnsupportedOperation
 from textwrap import dedent
 
 from yaml import load as yaml_load, BaseLoader
@@ -89,6 +90,36 @@ def test_minimal_label_serialize() -> None:
     text_label = label.as_text()
     dict_label = yaml_load(text_label, Loader=BaseLoader)
     assert dict_label == MINIMAL_LABEL_DICT
+
+
+def test_label_serialize_to_file_rewinds_and_distinguishes_labels() -> None:
+    labels = [
+        Label.from_text(MINIMAL_LABEL_YAML),
+        Label.from_text(MINIMAL_LABEL_YAML.replace("dataset: empty", "dataset: other")),
+    ]
+    readbacks = []
+    for label in labels:
+        output = StringIO()
+        label.serialize_to_file(output)
+        readbacks.append(output.read())
+
+    assert readbacks == [label.as_text() for label in labels]
+    assert readbacks[0] != readbacks[1]
+
+
+def test_label_serialize_to_non_seekable_file() -> None:
+    class NonSeekableStringIO(StringIO):
+        def seekable(self) -> bool:
+            return False
+
+        def seek(self, offset: int, whence: int = 0) -> int:
+            raise UnsupportedOperation("not seekable")
+
+    label = Label.from_text(MINIMAL_LABEL_YAML)
+    output = NonSeekableStringIO()
+    label.serialize_to_file(output)
+
+    assert output.getvalue() == label.as_text()
 
 
 def test_empty_label_parse() -> None:

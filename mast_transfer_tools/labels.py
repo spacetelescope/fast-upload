@@ -855,6 +855,8 @@ class Label(LabelElement):
     def serialize_to_file(self, fp: TextIOBase) -> None:
         """Serialize self to the file handle FP."""
         fp.write(self.as_text())
+        if fp.seekable():
+            fp.seek(0)
 
     def filetypes_for_filename(self, fn: Path | str) -> dict[str, Filetype]:
         """Return a list of all Filetypes defined in this label that cover a
