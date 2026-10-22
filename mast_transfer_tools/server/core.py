@@ -489,7 +489,7 @@ class ValidationSession:
             tb_name = names.transfer_bucket(
                 bucket_name_stem, dataset, delivery_id, transfer_type
             )
-        kw["identifiers"]: ValIdent = {
+        identifiers: ValIdent = {
             "confb_name": confb_name,
             "cb_name": cb_name,
             "tb_name": tb_name,
@@ -498,6 +498,7 @@ class ValidationSession:
             "transfer_type": transfer_type,
             "agent_id": own_agent_id,
         }
+        kw["identifiers"] = identifiers
 
         client = make_boto_client('s3', verify=False)
         control_bucket = Bucket(cb_name, client=client)
