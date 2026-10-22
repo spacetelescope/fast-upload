@@ -592,7 +592,7 @@ def validate_all(
     from rich.progress import Progress
 
     with Progress() as progress:
-        task = progress.add_task("Validating files...", total=len(targets))
+        task = progress.add_task(f"Validating {len(targets)} files...", total=len(targets))
         for t in targets:
             results.append(
                 validate_chatty(
