@@ -4,9 +4,20 @@ This document describes the label schema implemented in `mast_transfer_tools.lab
 
 Mismatches between the implementation and this document should be considered bugs.
 
+Labels require separate `collection` (archive collection, e.g. `HLSP`) and
+`provenance` (data source or processing origin, e.g. `TESS-SPOC`) identifiers.
+Both must be nonempty strings containing only ASCII letters, digits, hyphens,
+or underscores, with alphanumeric first and last characters. Values retain
+their original case in labels, delivery records, and messages. Resource names
+and artifact paths lowercase both components and replace underscores with
+hyphens; case/underscore variants therefore share a naming/config identity.
+Complete resource names must fit AWS limits, including prefixes and suffixes;
+overlong names are rejected, not truncated.
+
 | keyword | description | YAML type                                                                                                                                                                                                                                                     | required?                                                                                                                                                                                                                |
 | :---- | :---- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| dataset | identifier for dataset | string                                                                                                                                                                                                                                                        | yes                                                                                                                                                                                                                      |
+| collection | archive collection identifier (CAOM collection) | string | yes |
+| provenance | data source or processing origin (CAOM provenance) | string | yes |
 | delivery\_id | identifier for delivery within dataset | string \| integer                                                                                                                                                                                                                                             | yes                                                                                                                                                                                                                      | yes |
 | time | information on temporal boundaries of delivery | mapping                                                                                                                                                                                                                                                       | yes                                                                                                                                                                                                                      |
 | time/observation\_start\_date | start date of observations | date (normalized to YYYY-MM-DD for string comparison; time of day not allowed)                                                                                                                                                                                | no                                                                                                                                                                                                                       |

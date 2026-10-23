@@ -52,7 +52,7 @@ yload = partial(yaml.load, Loader=yaml.CLoader)
 
 # NOTE: the TaskConfig typing here is a little sketchy. We expect to have a
 # full TaskConfig _after_ merging the default task config and, if present, any
-# dataset-specific task config, but individual task configs can contain any
+# collection/provenance task config, but individual task configs can contain any
 # subset of those keys, which are interpreted as overrides.
 def _load_tconfig(cbucket: Bucket, key: str) -> TaskConfig:
     return yload(cbucket.get(key).read().decode("utf-8"))
@@ -63,8 +63,8 @@ def read_task_config(
 ) -> tuple[TaskConfig | None, str | None]:
     """
     Read a task configuration from the configuration bucket. If no special
-    config exists for this dataset, just read the default config; otherwise,
-    use anything in this dataset's config as overrides for the default config.
+    config exists for this collection/provenance pair, read the default;
+    otherwise, merge the pair's config over the default config.
 
     Returns:
         config: TaskConfig if config(s) were found and parsed correctly; None
@@ -76,20 +76,24 @@ def read_task_config(
     try:
         cbucket = bucket_constructor(netconf_params["CONFIG_BUCKET"])
         iconfigs: tuple[str] = cbucket.ls(
-            f"{netconf_params['TASK_CONFIG_PREFIX']}/"
+            f"{netconf_params['TASK_CONFIG_PREFIX']}/",
+            recursive=True,
+            formatting="simple",
         )
     except Exception as ex:
         # the locations file is wrong, something is wrong with the lambda
         # function's permissions, etc.
         return None, conf_bucket_err_response(ex)
     configs = {}
-    for k in ("default", event["dataset"]):
-        objname = f"{k}-task-config.yaml"
+    for objname in (
+        "default-task-config.yaml",
+        names.task_config_key(event["collection"], event["provenance"]),
+    ):
         if (
             key := str(Path(netconf_params["TASK_CONFIG_PREFIX"], objname))
         ) in iconfigs:
             try:
-                configs[k] = _load_tconfig(cbucket, key)
+                configs[objname] = _load_tconfig(cbucket, key)
             except Exception as ex:
                 # validation task config exists but is malformatted.
                 # treat this as a failure: we don't know what to do.
@@ -123,7 +127,8 @@ def load_kwargs(kwargblob: str) -> LambdaEventParameters:
 
 
 def run_validation_task(
-    dataset: str,
+    collection: str,
+    provenance: str,
     delivery_id: str,
     transfer_type: TransferType,
     tags: dict[str, str],
@@ -136,7 +141,8 @@ def run_validation_task(
     https://docs.aws.amazon.com/boto3/latest/reference/services/ecs/client/run_task.html
     """
     kwargblob = encode_kwargs(
-        dataset=dataset, delivery_id=delivery_id, transfer_type=transfer_type
+        collection=collection, provenance=provenance,
+        delivery_id=delivery_id, transfer_type=transfer_type
     )
     ecs = init_client("ecs")
     return ecs.run_task(
@@ -155,7 +161,7 @@ def run_validation_task(
             *[{"key": k, "value": v} for k, v in tags.items()],
             {
                 "key": "Name",
-                "value": names.validation_task(dataset, delivery_id),
+                "value": names.validation_task(collection, provenance, delivery_id),
             },
         ],
         overrides={
@@ -196,6 +202,9 @@ def lambda_cleanup(
             "exid": None,
         }
         try:
+            if "dataset" in event:
+                raise ValueError("dataset is no longer supported; use collection and provenance")
+            names.identity_slug(event["collection"], event["provenance"])
             ssm = make_boto_client("ssm")
 
             netconf_response = ssm.get_parameter(
@@ -204,7 +213,7 @@ def lambda_cleanup(
             netconf_params: PipelineNetworkConfig = json.loads(
                 netconf_response["Parameter"]["Value"]
             )
-            dataset, delivery_id, bucket_name, cbucket_name = unpack_locations(
+            collection, provenance, delivery_id, bucket_name, cbucket_name = unpack_locations(
                 event, netconf_params
             )
             tags_response = ssm.get_parameter(
@@ -227,20 +236,21 @@ def lambda_cleanup(
 
 def unpack_locations(
     event: LambdaEventParameters, netconf: PipelineNetworkConfig
-) -> tuple[str, str, str, str]:
-    dataset, delivery_id, ttype = (
-        event[n] for n in ("dataset", "delivery_id", "transfer_type")
+) -> tuple[str, str, str, str, str]:
+    collection, provenance, delivery_id, ttype = (
+        event[n] for n in ("collection", "provenance", "delivery_id", "transfer_type")
     )
     tbucket_name = names.transfer_bucket(
-        netconf["BUCKET_STEM"], dataset, delivery_id, ttype
+        netconf["BUCKET_STEM"], collection, provenance, delivery_id, ttype
     )
     cbucket_name = names.control_bucket(
         netconf["BUCKET_STEM"],
-        dataset,
+        collection,
+        provenance,
         delivery_id,
         netconf["AVAILABILITY_ZONE_ID"],
     )
-    return dataset, delivery_id, tbucket_name, cbucket_name
+    return collection, provenance, delivery_id, tbucket_name, cbucket_name
 
 
 @lambda_cleanup
@@ -255,7 +265,7 @@ def main(
     cleanup_dict: _CleanupDict,
 ) -> YAMLString:
     """Entrypoint for upload init lambda."""
-    dataset, delivery_id, tbucket_name, cbucket_name = unpack_locations(
+    collection, provenance, delivery_id, tbucket_name, cbucket_name = unpack_locations(
         event, netconf
     )
     bucket_constructor = Bucket
@@ -291,7 +301,7 @@ def main(
     print(f"using task config {tconfig}")
     if tconfig_err is not None:
         return tconfig_err
-    vtask_name = names.validation_task(dataset, delivery_id)
+    vtask_name = names.validation_task(collection, provenance, delivery_id)
     running_tasks = ls_tasks(cluster=tconfig["cluster"], name=vtask_name, status="RUNNING")
     if len(running_tasks) > 0:
         # This most likely indicates a duplicate execution. It could also
@@ -316,7 +326,7 @@ def main(
     try:
         print("running task\n")
         run_validation_task(
-            dataset, delivery_id, event["transfer_type"], tags, tconfig
+            collection, provenance, delivery_id, event["transfer_type"], tags, tconfig
         )
         task = ECSTask(ls_tasks(cluster=tconfig["cluster"], name=vtask_name)[0])
         print(f"found task '{task.task}' with status '{task.status}'")

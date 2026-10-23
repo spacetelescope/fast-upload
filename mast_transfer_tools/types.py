@@ -23,8 +23,8 @@ TransferEntity = Literal["validator", "client", "lambda"]
 class TaskConfig(TypedDict):
     """
     Format of full validation task configuration. The default task
-    configuration YAML object should contain all of these keys. Dataset-
-    specific objects may contain any subset.
+    configuration YAML object should contain all of these keys. Collection/
+    provenance-specific objects may contain any subset.
     """
     az_id: str
     subnet_id: str
@@ -50,7 +50,8 @@ class ValIdent(TypedDict):
     confb_name: str
     cb_name: str
     tb_name: str
-    dataset: str
+    collection: str
+    provenance: str
     delivery_id: str
     transfer_type: TransferType
     agent_id: str
@@ -92,7 +93,8 @@ class ValidationSQSReport(TypedDict):
     (assuming successful init). Dumped to JSON in actual message.
     """
 
-    dataset: str
+    collection: str
+    provenance: str
     delivery_id: str
     completed_at: str
     transfer_type: TransferType
@@ -107,7 +109,8 @@ class PipelineLaunchParameters(TypedDict):
     Information the validation pipeline expects to receive from the
     pipeline launch lambda on startup in normal operation.
     """
-    dataset: str
+    collection: str
+    provenance: str
     delivery_id: str
     transfer_type: TransferType
 
@@ -117,7 +120,8 @@ class LambdaEventParameters(TypedDict):
     Information the pipeline launch lambda expects to receive from the upload
     client on invocation in normal operation.
     """
-    dataset: str
+    collection: str
+    provenance: str
     delivery_id: str
     transfer_type: TransferType
     agent_id: str

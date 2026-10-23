@@ -13,6 +13,20 @@ def runner() -> CliRunner:
     return CliRunner()
 
 
+def test_populated_label_default_name_includes_both_fields(
+    runner: CliRunner, label_file: Path, data_dir: Path, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["populate-label", str(data_dir), str(label_file)])
+    assert result.exit_code == 0, result.output
+    output = tmp_path / "cli-smoke-synthetic-1-populated.yml"
+    assert output.exists()
+    parsed = cli_mod.Label.from_file(output)
+    assert parsed.collection == "cli-smoke"
+    assert parsed.provenance == "synthetic"
+
+
 @pytest.mark.parametrize(
     "args",
     [

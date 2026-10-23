@@ -1,4 +1,5 @@
-dataset: toy
+collection: toy
+provenance: synthetic
 delivery_id: 1
 filetypes:
     data_fits:

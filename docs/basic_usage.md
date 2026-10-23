@@ -11,9 +11,9 @@ Once you receive a skeleton label from MAST:
 1. Add filetype name patterns and standards to skeleton label (see "Completing a label" below)
 2. Run `mast-upload populate-label /path/to/data/files /path/to/label_with_filetypes.yml`, where /path/to/data/files is
    the root directory of a tree that contains your files (or a representative subset)
-3. Read the populated label ({dataset}-{delivery_id}-populated.yml) and confirm that it accurately represents your
+3. Read the populated label ({collection}-{provenance}-{delivery_id}-populated.yml) and confirm that it accurately represents your
    files, or make edits if necessary
-4. run `mast-upload validate-all /path/to/data/files {dataset}-{delivery_id}-populated.yml` to confirm that the label
+4. run `mast-upload validate-all /path/to/data/files {collection}-{provenance}-{delivery_id}-populated.yml` to confirm that the label
    passes validation against your files
 5. Send the populated label to MAST for verification and possible further refinements.
 
@@ -48,7 +48,8 @@ Here is a minimal example of a legal label. The skeleton label you receive
 from MAST will contain at least this information:
 
 ```yaml
-dataset: some-dataset
+collection: HLSP
+provenance: TESS-SPOC
 delivery_id: 1234
 time:
     delivery_start_date: 2026-11-14
@@ -167,18 +168,18 @@ For instance, from repository root:
 
 `mast-upload populate-label extras/fast_toy_dataset/data/ extras/fast_toy_dataset/toy-1.yml`
 will fill out extras/fast_toy_dataset/toy-1.yml and write the populated label as
-toy-1-populated.yml.
+toy-synthetic-1-populated.yml.
 
-`mast-upload validate-all extras/fast_toy_dataset/data/ toy-1-populated.yml` will then validate
-the contents of extras/fast_toy_dataset/data against toy-1-populated.yml (this command 
+`mast-upload validate-all extras/fast_toy_dataset/data/ toy-synthetic-1-populated.yml` will then validate
+the contents of extras/fast_toy_dataset/data against toy-synthetic-1-populated.yml (this command
 should report that all files are valid). 
 
-`mast-upload validate-all extras/fast_toy_dataset/bad_data/ toy-1-populated.yml` will then validate
-the contents of extras/fast_toy_dataset/bad_data against toy-1-populated.yml (this command 
+`mast-upload validate-all extras/fast_toy_dataset/bad_data/ toy-synthetic-1-populated.yml` will then validate
+the contents of extras/fast_toy_dataset/bad_data against toy-synthetic-1-populated.yml (this command
 should report validation failures for all files). 
 
 `mast-upload index extras/fast_toy_dataset/data/ --make-checksums` will index the contents
 of extras/fast_toy_dataset/data and write an index.csv file containing paths and checksums.
 
-`mast-upload report-filetypes extras/fast_toy_dataset/data/ toy-1-populated.yml` will write a
+`mast-upload report-filetypes extras/fast_toy_dataset/data/ toy-synthetic-1-populated.yml` will write a
 filetypes.csv file containing paths and assigned filetypes.

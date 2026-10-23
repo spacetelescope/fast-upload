@@ -168,7 +168,8 @@ class UploadClient:
     def __init__(
         self,
         *,
-        dataset: str,
+        collection: str,
+        provenance: str,
         delivery_id: str,
         file_index: pd.DataFrame,
         transfer_type: TransferType,
@@ -204,7 +205,7 @@ class UploadClient:
         self.authenticated = False
         self.n_threads = n_threads
         self.index_key = names.index_key(
-            dataset, delivery_id, transfer_type
+            collection, provenance, delivery_id, transfer_type
         )
         self.netconf_params = None
         self.session = None
@@ -254,7 +255,8 @@ class UploadClient:
                     if self.dataroot is not None
                     else self.source_bucket_name
                 ),
-                "dataset": dataset,
+                "collection": collection,
+                "provenance": provenance,
                 "delivery_id": delivery_id,
                 "transfer_type": transfer_type,
                 "agent_id": own_agent_id,
@@ -272,7 +274,7 @@ class UploadClient:
         self.cmessage("attempting cognito authentication", "info")
         cmanager = get_authenticated_cognito_manager(cogconf=conf.COGCONFIG)
         role_suffix_for_delivery = (
-            f"{self.identifiers['dataset']}-{self.identifiers['delivery_id']}"
+            f"{names.identity_slug(self.identifiers['collection'], self.identifiers['provenance'])}-{self.identifiers['delivery_id']}"
             f"-role"
         )
         cmanager.get_credentials(role_suffix=role_suffix_for_delivery)
@@ -297,13 +299,15 @@ class UploadClient:
         self.init_lambda_arn = self.netconf_params['INIT_LAMBDA_ARN']
         self.identifiers['cb_name'] = names.control_bucket(
             self.netconf_params['BUCKET_STEM'],
-            self.identifiers['dataset'],
+            self.identifiers['collection'],
+            self.identifiers['provenance'],
             self.identifiers['delivery_id'],
             self.netconf_params['AVAILABILITY_ZONE_ID'],
         )
         self.identifiers['tb_name'] = names.transfer_bucket(
             self.netconf_params['BUCKET_STEM'],
-            self.identifiers['dataset'],
+            self.identifiers['collection'],
+            self.identifiers['provenance'],
             self.identifiers['delivery_id'],
             self.identifiers['transfer_type']
         )
@@ -763,7 +767,8 @@ class UploadClient:
     def initiate_transfer(self) -> None:
         """Attempt to start the validation pipeline."""
         lambda_parameters = {
-            "dataset": self.identifiers["dataset"],
+            "collection": self.identifiers["collection"],
+            "provenance": self.identifiers["provenance"],
             "delivery_id": self.identifiers["delivery_id"],
             "transfer_type": self.identifiers["transfer_type"],
             "agent_id": self.own_agent_id,

@@ -465,7 +465,8 @@ class ValidationSession:
         confb_name: str,
         az_id: str,
         cb_name: str,
-        dataset: str,
+        collection: str,
+        provenance: str,
         delivery_id: str,
         settings: ValPipeSettings,
         tb_name: str,
@@ -483,17 +484,18 @@ class ValidationSession:
         own_agent_id = "".join(random.choices(ascii_lowercase, k=11))
         if cb_name is None:
             cb_name = names.control_bucket(
-                bucket_name_stem, dataset, delivery_id, az_id
+                bucket_name_stem, collection, provenance, delivery_id, az_id
             )
         if tb_name is None:
             tb_name = names.transfer_bucket(
-                bucket_name_stem, dataset, delivery_id, transfer_type
+                bucket_name_stem, collection, provenance, delivery_id, transfer_type
             )
         identifiers: ValIdent = {
             "confb_name": confb_name,
             "cb_name": cb_name,
             "tb_name": tb_name,
-            "dataset": dataset,
+            "collection": collection,
+            "provenance": provenance,
             "delivery_id": delivery_id,
             "transfer_type": transfer_type,
             "agent_id": own_agent_id,
@@ -511,27 +513,31 @@ class ValidationSession:
         )
         try:
             submitted_label_text = control_bucket.read(
-                names.label_key(dataset, delivery_id)
+                names.label_key(collection, provenance, delivery_id)
             )
             label_submitted = Label.from_text(submitted_label_text)
             if not label_submitted.valid:
                 raise InvalidLabelError(str(label_submitted.errors))
+            if (label_submitted.collection, label_submitted.provenance) != (collection, provenance):
+                raise InvalidLabelError("submitted label identity does not match launch parameters")
         except BaseException as ex:
             return kw, {
-                "ref": names.label_key(dataset, delivery_id),
+                "ref": names.label_key(collection, provenance, delivery_id),
                 "message": {"summary": "problem with user-submitted label"},
             }, ex
         config_bucket = Bucket(confb_name)
         try:
             accepted_label_text = config_bucket.read(
-                f"{conf.LABEL_PREFIX}/{names.label_key(dataset, delivery_id)}"
+                f"{conf.LABEL_PREFIX}/{names.label_key(collection, provenance, delivery_id)}"
             )
             label_accepted = Label.from_text(accepted_label_text)
             if not label_accepted.valid:
                 raise InvalidLabelError(str(label_accepted.errors))
+            if (label_accepted.collection, label_accepted.provenance) != (collection, provenance):
+                raise InvalidLabelError("accepted label identity does not match launch parameters")
         except BaseException as ex:
             return kw, {
-                "ref": names.label_key(dataset, delivery_id),
+                "ref": names.label_key(collection, provenance, delivery_id),
                 "message": {"summary": "problem with accepted label"}
             }, ex
         sbuf, abuf = StringIO(), StringIO()
@@ -544,19 +550,19 @@ class ValidationSession:
                 label_accepted_canonicalized.splitlines(),
                 label_submitted_canonicalized.splitlines()))
             return kw, {
-                "ref": names.label_key(dataset, delivery_id),
+                "ref": names.label_key(collection, provenance, delivery_id),
                 "message": {"summary": f"mismatch between user-submitted and "
                                        f"accepted labels: {diff}"}
             }, InvalidLabelError()
         try:
             ibuf = control_bucket.get(
-                names.index_key(dataset, delivery_id, transfer_type)
+                names.index_key(collection, provenance, delivery_id, transfer_type)
             )
             index = parse_index_file(ibuf, label_accepted)
             kw["index"] = index
         except BaseException as ex:
             return kw, {
-                "ref": names.index_key(dataset, delivery_id, transfer_type),
+                "ref": names.index_key(collection, provenance, delivery_id, transfer_type),
                 "message": {"summary": "could not read index"},
             }, ex
         client_log_reader = S3TSVReader(
@@ -583,7 +589,8 @@ class ValidationSession:
     @classmethod
     def from_launch_parameters(
         cls,
-        dataset: str,
+        collection: str,
+        provenance: str,
         delivery_id: str,
         transfer_type: TransferType,
         settings: ValPipeSettings = MPt(conf.VAL_PIPE_SETTINGS),
@@ -601,7 +608,8 @@ class ValidationSession:
         ValidationSession.__init__().
 
         Args:
-            dataset: dataset from the label
+            collection: collection from the label
+            provenance: provenance from the label
             delivery_id: delivery_id from the label
             transfer_type: "sample" or "staging" as appropriate
             settings: ValPipeSettings
@@ -630,7 +638,8 @@ class ValidationSession:
                 netconf_params['CONFIG_BUCKET'],
                 netconf_params['AVAILABILITY_ZONE_ID'],
                 cb_name,
-                dataset,
+                collection,
+                provenance,
                 delivery_id,
                 settings,
                 tb_name,
@@ -877,13 +886,14 @@ class ValidationSession:
     def _format_sqs_report(self) -> ValidationSQSReport:
         """Format a pipeline exit status message for SQS"""
         msg = {}
-        msg["dataset"] = self.identifiers["dataset"]
+        msg["collection"] = self.identifiers["collection"]
+        msg["provenance"] = self.identifiers["provenance"]
         msg["delivery_id"] = self.identifiers["delivery_id"]
         msg["completed_at"] = dt.datetime.now(tz=dt.timezone.utc).isoformat()
         msg["transfer_type"] = self.identifiers["transfer_type"]
         msg["label_path"] = (
             f"s3://{self.identifiers['confb_name']}/"
-            f"{names.label_key(self.identifiers['dataset'], self.identifiers['delivery_id'])}"
+            f"{conf.LABEL_PREFIX}/{names.label_key(self.identifiers['collection'], self.identifiers['provenance'], self.identifiers['delivery_id'])}"
         )
         msg["details"] = {
             "files_validated": self.vstate.n_completed,
@@ -986,8 +996,10 @@ class ValidationSession:
     """name of associated control bucket"""
     tb_name: str
     """name of associated transfer bucket"""
-    dataset: str
-    """name of dataset"""
+    collection: str
+    """archival collection"""
+    provenance: str
+    """data source or processing origin"""
     delivery_id: str
     """id of specific delivery"""
     transfer_type: TransferType

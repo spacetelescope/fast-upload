@@ -6,6 +6,7 @@ import re
 from typing import Any, Protocol
 
 from mast_transfer_tools.types import TransferType, TransferEntity
+from mast_transfer_tools.utilz.identity import checked_name, identity_component, identity_slug
 
 
 class BucketNamer(Protocol):
@@ -19,73 +20,78 @@ def regularize_bucket_name(func: BucketNamer) -> BucketNamer:
     def with_sanitization(s: str, /, *args: Any, **kwargs: Any) -> str:
         # obviously there are other possible cases, but this is the most
         # common one
-        return re.sub("_", "-", func(s, *args, **kwargs))
+        return checked_name(re.sub("_", "-", func(s, *args, **kwargs).lower()))
 
     return with_sanitization
 
 
 @regularize_bucket_name
 def transfer_bucket(
-    stem: str, dataset: str, delivery_id: str, transfer_type: TransferType
+    stem: str, collection: str, provenance: str, delivery_id: str, transfer_type: TransferType
 ) -> str:
     """
     Args:
         stem: global bucket name stem
-        dataset: dataset as specified in label
+        collection: collection as specified in label
+        provenance: provenance as specified in label
         delivery_id: delivery id as specified in label
         transfer_type: 'sample' or 'staging'
 
     Returns:
        Transfer bucket name.
     """
-    return f"{stem}-{dataset}-{delivery_id}-{transfer_type}"
+    return f"{stem}-{identity_slug(collection, provenance)}-{delivery_id}-{transfer_type}"
 
 
 @regularize_bucket_name
 def control_bucket(
     stem: str,
-    dataset: str,
+    collection: str,
+    provenance: str,
     delivery_id: str,
     az_id: str,
 ) -> str:
     """
     Args:
         stem: global bucket name stem
-        dataset: dataset as specified in label
+        collection: collection as specified in label
+        provenance: provenance as specified in label
         delivery_id: delivery id as specified in label
         az_id: short AWS availability zone ID (e.g. 'use1-az4')
 
     Returns:
        Control bucket name.
     """
-    return f"{stem}-{dataset}-{delivery_id}-control--{az_id}--x-s3"
+    return f"{stem}-{identity_slug(collection, provenance)}-{delivery_id}-control--{az_id}--x-s3"
 
 
-def validation_task(dataset: str, delivery_id: str) -> str:
+def validation_task(collection: str, provenance: str, delivery_id: str) -> str:
     """
     Args:
-        dataset: dataset as specified in label
+        collection: collection as specified in label
+        provenance: provenance as specified in label
         delivery_id: delivery id as specified in label
 
     Returns:
        Validation task name.
    """
-    return f"{dataset}-{delivery_id}-validator"
+    return checked_name(f"{identity_slug(collection, provenance)}-{delivery_id}-validator", 255)
 
 
 def index_key(
-    dataset: str, delivery_id: str, transfer_type: TransferType
+    collection: str, provenance: str, delivery_id: str, transfer_type: TransferType
 ) -> str:
     """
     Args:
-        dataset: dataset as specified in label
+        collection: collection as specified in label
+        provenance: provenance as specified in label
         delivery_id: delivery id as specified in label
         transfer_type: 'sample' or 'staging'
 
     Returns:
        Key of CSV index object.
    """
-    return f"{dataset}-{delivery_id}-{transfer_type}-index.csv"
+    return f"{identity_slug(collection, provenance)}-{delivery_id}-{transfer_type}-index.csv"
 
 
 def log_key(transfer_type: TransferType, writer: TransferEntity) -> str:
@@ -104,16 +110,21 @@ def log_key(transfer_type: TransferType, writer: TransferEntity) -> str:
     raise ValueError(f"Unknown entity {writer}")
 
 
-def label_key(dataset_name: str, delivery_id: str | int) -> str:
+def label_key(collection: str, provenance: str, delivery_id: str | int) -> str:
     """
     Args:
-        dataset_name: dataset as specified in label
+        collection: collection as specified in label
+        provenance: provenance as specified in label
         delivery_id: delivery id as specified in label
 
     Returns:
        Key of YAML label.
     """
-    return f"{dataset_name}-{delivery_id}-label.yaml"
+    return f"{identity_slug(collection, provenance)}-{delivery_id}-label.yaml"
+
+
+def task_config_key(collection: str, provenance: str) -> str:
+    return f"{identity_component(collection)}/{identity_component(provenance)}-task-config.yaml"
 
 
 def lock_key(writer: TransferEntity) -> str:

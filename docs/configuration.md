@@ -61,10 +61,15 @@ include the `fast-upload` library and all its dependencies, and will run a
 Task definitions, clusters, VPCs, and security groups must be created at AWS 
 level. However, which of these to use may be specified at runtime via 
 YAML-formatted text objects in the configuration bucket under `TASK_CONFIG_PREFIX`. 
-A default task definition ("default-task-config.yaml") must always exist. 
-Dataset-specific task definitions ("$DATASET-task-config.yaml") may also be defined. 
-Values in those files override values in default-task-config.yaml. (Delivery-specific 
-task definitions are not supported.)
+A default configuration (`default-task-config.yaml`) provides shared settings.
+Collection/provenance-specific overrides use
+`<collection>/<provenance>-task-config.yaml` beneath `TASK_CONFIG_PREFIX`, for
+example `hlsp/tess-spoc-task-config.yaml`. Path components are lowercase with
+underscores replaced by hyphens, while label metadata retains its original case.
+The selected pair overrides the default values; there is no collection-wide
+override layer. A complete pair-specific configuration can also be used without
+a default. Missing both configurations or a malformed selected configuration
+is an error. Delivery-specific overrides are not supported.
 
 Valid parameters in task configuration objects are:
 

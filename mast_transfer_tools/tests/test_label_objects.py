@@ -173,7 +173,8 @@ def test_empty(ltype: type[LabelElement]) -> None:
             "/schema_version": ["must always be defined"],
         },
         "Label": {
-            "/dataset": ["must always be defined"],
+            "/collection": ["must always be defined"],
+            "/provenance": ["must always be defined"],
             "/delivery_id": ["must always be defined"],
             "/delivery_meta": ["must always be defined"],
             "/delivery_meta/schema_version": ["must always be defined"],
@@ -1135,7 +1136,8 @@ def st_good_Label() -> st.SearchStrategy[dict[str, Any]]:
     """
     return st.fixed_dictionaries(
         {
-            "dataset": st_identifier(),
+            "collection": st_identifier(underscore=False).map(lambda value: "C" + value),
+            "provenance": st_identifier(underscore=False).map(lambda value: "P" + value),
             "delivery_id": st.one_of(st.integers(), st_identifier()),
             "time": st_good_TimeInfo(),
             "delivery_meta": st_good_DeliveryMeta(),
@@ -1168,7 +1170,8 @@ def check_Label(inp: dict[str, Any], obj: labels.Label) -> None:
     """
     assert obj._errors == []
 
-    assert obj.dataset == inp["dataset"]
+    assert obj.collection == inp["collection"]
+    assert obj.provenance == inp["provenance"]
     assert obj.delivery_id == inp["delivery_id"]
     assert obj.shared_name_patterns == inp.get("shared_name_patterns", {})
 

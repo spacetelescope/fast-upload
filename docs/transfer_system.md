@@ -127,6 +127,12 @@ process.
 
 ### **Dataset Labels (2.1.1)**
 
+Each label requires separate `collection` and `provenance` identifiers with
+the same meanings as their CAOM counterparts. Both appear in normalized
+delivery resource names and label/index keys; the original values travel
+through upload-init events, ECS launch parameters, and validation SQS reports.
+See [the label schema](label_schema.md) for identifier requirements.
+
 Every data delivery includes dataset-level metadata in a YAML-formatted “label” file 
 following a fixed schema. see [label_schema.md](label_schema.md) for a 
 description of this schema, and `mast_transfer_tools.labels` for its implementation.

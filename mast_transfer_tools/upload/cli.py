@@ -22,6 +22,7 @@ from yaml import YAMLError
 from hostess.aws.s3 import Bucket
 from mast_transfer_tools.describe import SUPPORTED_STANDARDS, FileDescription, describe_file
 from mast_transfer_tools.utilz.shims import path_walk
+from mast_transfer_tools.utilz.identity import identity_slug
 from mast_transfer_tools.utilz.cli import (
     fatal_oserror,
     fatal_yaml_error,
@@ -108,7 +109,7 @@ def main() -> None:
     "-o",
     "--output",
     metavar="<output>",
-    help="label file to create instead of {dataset}-{delivery_id}-populated.yml.",
+    help="label file to create instead of {collection}-{provenance}-{delivery_id}-populated.yml.",
     type=Path,
     default=None,
 )
@@ -309,7 +310,7 @@ def populate_label(
         )
     if output is None:
         output = Path(
-            f"{new_label.dataset}-{new_label.delivery_id}-populated.yml"
+            f"{identity_slug(new_label.collection, new_label.provenance)}-{new_label.delivery_id}-populated.yml"
         )
     with open(output, "w") as stream:
         new_label.serialize_to_file(stream)

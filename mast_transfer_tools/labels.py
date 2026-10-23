@@ -24,7 +24,9 @@ from typing import (
 )
 
 from mast_transfer_tools.utilz.shims import path_walk
+from mast_transfer_tools.utilz.identity import identity_component
 from mast_transfer_tools.label_meta import (
+    DecodingError,
     ExplicitNullT,
     FieldNode,
     LabelElement,
@@ -37,7 +39,7 @@ from mast_transfer_tools.label_meta import (
     decode_as_element,
 )
 
-from yaml import ScalarNode, SequenceNode
+from yaml import ScalarNode, SequenceNode, safe_load
 
 if TYPE_CHECKING:
     from hostess.aws.s3 import Bucket
@@ -824,9 +826,26 @@ class Filetype(LabelElement):
         return include
 
 
+def decode_identity(value: FieldNode, lpath: str) -> str:
+    text = decode_as_str(value, lpath)
+    if isinstance(value, ScalarNode) and value.style is None:
+        if not isinstance(safe_load(text), str):
+            raise DecodingError(lpath, "must be a nonempty string identifier")
+    try:
+        identity_component(text)
+    except ValueError as error:
+        raise DecodingError(lpath, str(error)) from error
+    return text
+
+
 class Label(LabelElement):
     """"""
-    dataset: str = special_field(required=True, default="<name missing>")
+    collection: str = special_field(
+        required=True, default="<name missing>", decode_value=decode_identity
+    )
+    provenance: str = special_field(
+        required=True, default="<name missing>", decode_value=decode_identity
+    )
     delivery_id: int | str = special_field(
         required=True, default="<delivery_id missing>"
     )
@@ -836,6 +855,20 @@ class Label(LabelElement):
     filetypes: dict[str, Filetype]
     delivery_meta: DeliveryMeta = special_field(required=True)
     custom_metadata: YAMLAny | None = None
+
+    @classmethod
+    def _validate_label(
+        cls, spec: dict[str, Any], lpath: str
+    ) -> list[tuple[str, str]]:
+        errors = []
+        for name in ("collection", "provenance"):
+            if spec[name] == "<name missing>":
+                continue
+            try:
+                identity_component(spec[name])
+            except ValueError as error:
+                errors.append((f"{lpath.rstrip('/')}/{name}", str(error)))
+        return errors
 
     @classmethod
     def from_file(cls, fname: Path, *, missing_ok: bool = False) -> Self:

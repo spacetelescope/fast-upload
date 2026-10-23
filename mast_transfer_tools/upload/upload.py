@@ -27,7 +27,8 @@ def upload(
     import mast_transfer_tools.config as conf
 
     client = UploadClient(
-        dataset=label.dataset,
+        collection=label.collection,
+        provenance=label.provenance,
         delivery_id=label.delivery_id,
         transfer_type=transfer_type,
         file_index=file_index,
@@ -53,7 +54,7 @@ def upload(
     # provider thinking they're transferring different sorts of files!
     client.control_bucket.put(
         label.as_text(),
-        names.label_key(label.dataset, label.delivery_id),
+        names.label_key(label.collection, label.provenance, label.delivery_id),
         literal_str=True,
     )
 

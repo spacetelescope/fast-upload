@@ -27,8 +27,9 @@ import mast_transfer_tools.utilz.name_reference as names
 import mast_transfer_tools.config as conf
 
 
-DATASET = "dataset-one"
-DELIVERY_ID = "delivery-one"
+COLLECTION = "HLSP"
+PROVENANCE = "TESS-SPOC"
+DELIVERY_ID = "42"
 TRANSFER_TYPE = "staging"
 
 NETCONF_PARAMS = {
@@ -40,12 +41,13 @@ NETCONF_PARAMS = {
 
 CONTROL_BUCKET = names.control_bucket(
     NETCONF_PARAMS["BUCKET_STEM"],
-    DATASET,
+    COLLECTION,
+    PROVENANCE,
     DELIVERY_ID,
     NETCONF_PARAMS["AVAILABILITY_ZONE_ID"],
 )
 TRANSFER_BUCKET = names.transfer_bucket(
-    NETCONF_PARAMS["BUCKET_STEM"], DATASET, DELIVERY_ID, TRANSFER_TYPE
+    NETCONF_PARAMS["BUCKET_STEM"], COLLECTION, PROVENANCE, DELIVERY_ID, TRANSFER_TYPE
 )
 AGENT_ID = "client-agent-1"
 
@@ -345,7 +347,8 @@ def make_upload_client_rig(
     bucket_factory = bucket_factory_for(registry)
 
     client = upload_client_mod.UploadClient(
-        dataset=DATASET,
+        collection=COLLECTION,
+        provenance=PROVENANCE,
         delivery_id=DELIVERY_ID,
         file_index=pd.DataFrame({"path": list(files)}),
         transfer_type=TRANSFER_TYPE,
@@ -367,7 +370,9 @@ def assert_lambda_was_invoked_for_upload(fake_session: FakeSession) -> None:
     assert call.function_name == NETCONF_PARAMS["INIT_LAMBDA_ARN"]
 
     payload = call.json_payload
-    assert payload["dataset"] == DATASET
+    assert payload["collection"] == COLLECTION
+    assert payload["provenance"] == PROVENANCE
+    assert "dataset" not in payload
     assert payload["delivery_id"] == DELIVERY_ID
     assert payload["transfer_type"] == TRANSFER_TYPE
     assert payload["agent_id"] == AGENT_ID

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
 from io import BytesIO
+from types import SimpleNamespace
 
 from astropy.io.fits import HDUList, ImageHDU, PrimaryHDU
 from astropy.io.fits import open as fits_open
@@ -32,7 +33,8 @@ from mast_transfer_tools.tests.mock_s3log import (
 )
 from mast_transfer_tools.tests.test_label_parsing import MINIMAL_LABEL_YAML
 
-DATASET = "empty"
+COLLECTION = "empty"
+PROVENANCE = "synthetic"
 DELIVERY_ID = "0"
 TRANSFER_TYPE = "staging"
 CONFIG_BUCKET = "config-bucket"
@@ -55,17 +57,59 @@ DEFAULT_IDENTIFIERS = {
     "confb_name": CONFIG_BUCKET,
     "cb_name": CONTROL_BUCKET,
     "tb_name": TRANSFER_BUCKET,
-    "dataset": DATASET,
+    "collection": COLLECTION,
+    "provenance": PROVENANCE,
     "delivery_id": DELIVERY_ID,
     "transfer_type": TRANSFER_TYPE,
     "agent_id": AGENT_ID,
 }
 
+
+def test_report_contains_raw_identity_and_canonical_label_path() -> None:
+    session = ValidationSession.__new__(ValidationSession)
+    session.identifiers = DEFAULT_IDENTIFIERS | {"collection": "HLSP", "provenance": "TESS-SPOC"}
+    session.vstate = SimpleNamespace(n_completed=0, n_expected_files=0, n_failures=0, done=True)
+    session.exception = None
+    session.errors = {}
+    report = session._format_sqs_report()
+    assert report["collection"] == "HLSP"
+    assert report["provenance"] == "TESS-SPOC"
+    assert "dataset" not in report
+    assert report["label_path"] == f"s3://{CONFIG_BUCKET}/{validation_core_mod.conf.LABEL_PREFIX}/hlsp-tess-spoc-0-label.yaml"
+
+
+@pytest.mark.parametrize("field", ["collection", "provenance"])
+@pytest.mark.parametrize("location", ["submitted", "accepted"])
+def test_launch_rejects_mismatched_label_identity(
+    monkeypatch: pytest.MonkeyPatch, field: str, location: str
+) -> None:
+    registry = FakeBucketRegistry()
+    control = registry.get_or_make(CONTROL_BUCKET)
+    config = registry.get_or_make(CONFIG_BUCKET)
+    label_key = validation_core_mod.names.label_key(COLLECTION, PROVENANCE, DELIVERY_ID)
+    changed = MINIMAL_LABEL_YAML.replace(
+        f"{field}: {'empty' if field == 'collection' else 'synthetic'}", f"{field}: other"
+    )
+    control.put(changed if location == "submitted" else MINIMAL_LABEL_YAML, label_key, literal_str=True)
+    config.put(changed if location == "accepted" else MINIMAL_LABEL_YAML,
+               f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True)
+    install_validation_server_fakes(monkeypatch, registry)
+    kwargs, error, exception = ValidationSession._init_launch_objs(
+        "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET,
+        COLLECTION, PROVENANCE, DELIVERY_ID, DEFAULT_VAL_SETTINGS,
+        TRANSFER_BUCKET, TRANSFER_TYPE,
+    )
+    assert isinstance(exception, validation_core_mod.InvalidLabelError)
+    assert "identity does not match" in str(exception)
+    assert error["ref"] == label_key
+    kwargs["logger"].stop()
+
 FITS_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-dataset: empty
+collection: empty
+provenance: synthetic
 delivery_id: "0"
 delivery_meta:
   schema_version: "0.0.1a0"
@@ -585,7 +629,8 @@ FITS_HOOK_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-dataset: empty
+collection: empty
+provenance: synthetic
 delivery_id: "0"
 delivery_meta:
   schema_version: "0.0.1a0"

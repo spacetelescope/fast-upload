@@ -17,8 +17,9 @@ from mast_transfer_tools.tests.mock_buckets import (
     FakeMutableBucket,
 )
 
-DATASET = "dataset-one"
-DELIVERY_ID = "delivery-one"
+COLLECTION = "HLSP"
+PROVENANCE = "TESS-SPOC"
+DELIVERY_ID = "42"
 TRANSFER_TYPE = "staging"
 AGENT_ID = "client-agent-1"
 CONFIG_BUCKET = "fast-config"
@@ -36,7 +37,8 @@ RESOURCE_TAGS = {"Project": "MAST FAST", "Environment": "test"}
 
 CONTROL_BUCKET = names.control_bucket(
     NETCONF["BUCKET_STEM"],
-    DATASET,
+    COLLECTION,
+    PROVENANCE,
     DELIVERY_ID,
     NETCONF["AVAILABILITY_ZONE_ID"],
 )
@@ -98,6 +100,8 @@ class FakeECSTask:
     """Fake ECSTask with controllable logs."""
 
     def __init__(self, _task: dict[str, Any], logs: list[str] | None = None) -> None:
+        self.task = _task
+        self.status = "RUNNING"
         self.logs = (
             ["Initializing pipeline for tests"] if logs is None else logs
         )
@@ -127,7 +131,8 @@ class LambdaRig:
 
 def event(**overrides: Any) -> dict[str, Any]:
     base = {
-        "dataset": DATASET,
+        "collection": COLLECTION,
+        "provenance": PROVENANCE,
         "delivery_id": DELIVERY_ID,
         "transfer_type": TRANSFER_TYPE,
         "agent_id": AGENT_ID,
@@ -152,7 +157,7 @@ def make_lambda_rig(
     monkeypatch: pytest.MonkeyPatch,
     *,
     default_config: dict[str, Any] | None = DEFAULT_TASK_CONFIG,
-    dataset_config: dict[str, Any] | None = None,
+    identity_config: dict[str, Any] | None = None,
     client_lock: str | None = AGENT_ID,
     running_tasks: list[dict[str, Any]] | None = None,
     ecs: FakeECSClient | None = None,
@@ -174,8 +179,12 @@ def make_lambda_rig(
         )
     if default_config is not None:
         put_task_config(rig, "default", default_config)
-    if dataset_config is not None:
-        put_task_config(rig, DATASET, dataset_config)
+    if identity_config is not None:
+        rig.config_bucket.put(
+            yaml.safe_dump(identity_config),
+            f"{TASK_CONFIG_PREFIX}/{names.task_config_key(COLLECTION, PROVENANCE)}",
+            literal_str=True,
+        )
 
     def bucket_factory(
         bucket_name: str, *_args: Any, **_kwargs: Any
@@ -212,6 +221,51 @@ def response_from_lambda(result: str) -> dict[str, Any]:
 def only_run_task_call(rig: LambdaRig) -> dict[str, Any]:
     assert len(rig.ecs.run_task_calls) == 1
     return rig.ecs.run_task_calls[0]
+
+
+def test_identity_configuration_isolation(monkeypatch: pytest.MonkeyPatch) -> None:
+    make_lambda_rig(monkeypatch, identity_config={"cluster": "identity-cluster"})
+    config, error = lambda_core.read_task_config(event(), NETCONF)
+    assert error is None
+    assert config["cluster"] == "identity-cluster"
+    config, error = lambda_core.read_task_config(event(provenance="OTHER"), NETCONF)
+    assert error is None
+    assert config["cluster"] == DEFAULT_TASK_CONFIG["cluster"]
+
+
+def test_identity_configuration_without_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    make_lambda_rig(monkeypatch, default_config=None, identity_config=DEFAULT_TASK_CONFIG)
+    config, error = lambda_core.read_task_config(event(), NETCONF)
+    assert error is None
+    assert config == DEFAULT_TASK_CONFIG
+
+
+def test_malformed_identity_configuration_is_not_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    rig.config_bucket.put(
+        "[invalid YAML",
+        f"{TASK_CONFIG_PREFIX}/{names.task_config_key(COLLECTION, PROVENANCE)}",
+        literal_str=True,
+    )
+    config, error = lambda_core.read_task_config(event(), NETCONF)
+    assert config is None
+    assert error is not None
+
+
+@pytest.mark.parametrize("missing", ["collection", "provenance"])
+def test_lambda_rejects_missing_identity(monkeypatch: pytest.MonkeyPatch, missing: str) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    parameters = event()
+    parameters.pop(missing)
+    assert response_from_lambda(lambda_core.main(parameters, object()))["status"] == "error"
+    assert rig.ecs.run_task_calls == []
+    assert rig.ssm.calls == []
+
+
+def test_lambda_rejects_legacy_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    assert response_from_lambda(lambda_core.main(event(dataset="legacy"), object()))["status"] == "error"
+    assert rig.ecs.run_task_calls == []
 
 
 def container_environment(run_task_call: dict[str, Any]) -> dict[str, str]:
@@ -257,14 +311,15 @@ def test_lambda_launches_validation_task_and_cleans_lambda_lock(
     assert {"key": "Project", "value": "MAST FAST"} in run_task_call["tags"]
     assert {
         "key": "Name",
-        "value": names.validation_task(DATASET, DELIVERY_ID),
+        "value": names.validation_task(COLLECTION, PROVENANCE, DELIVERY_ID),
     } in run_task_call["tags"]
 
     task_kwargs = lambda_core.load_kwargs(
         container_environment(run_task_call)["KWARGBLOB"]
     )
     assert task_kwargs == {
-        "dataset": DATASET,
+        "collection": COLLECTION,
+        "provenance": PROVENANCE,
         "delivery_id": DELIVERY_ID,
         "transfer_type": TRANSFER_TYPE,
     }
@@ -327,7 +382,7 @@ def test_lambda_reports_pipeline_startup_exception(
             "duplicate validation task",
             {
                 "running_tasks": [
-                    {"name": names.validation_task(DATASET, DELIVERY_ID)}
+                    {"name": names.validation_task(COLLECTION, PROVENANCE, DELIVERY_ID)}
                 ]
             },
             "validation task check",
@@ -361,7 +416,7 @@ def test_lambda_refuses_to_launch_when_validation_task_is_already_running(
         monkeypatch,
         running_tasks=[
             {
-                "name": names.validation_task(DATASET, DELIVERY_ID),
+                "name": names.validation_task(COLLECTION, PROVENANCE, DELIVERY_ID),
                 "lastStatus": "RUNNING",
             }
         ],
@@ -378,13 +433,13 @@ def test_lambda_refuses_to_launch_when_validation_task_is_already_running(
     assert_lambda_lock_was_written_and_removed(rig)
 
 
-def test_dataset_task_config_overrides_default_task_config(
+def test_identity_task_config_overrides_default_task_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     rig = make_lambda_rig(
         monkeypatch,
-        dataset_config={
-            "cluster": "cluster-for-dataset",
+        identity_config={
+            "cluster": "cluster-for-identity",
             "memory": "1024",
         },
     )
@@ -393,7 +448,7 @@ def test_dataset_task_config_overrides_default_task_config(
 
     assert response == {"status": "success"}
     run_task_call = only_run_task_call(rig)
-    assert run_task_call["cluster"] == "cluster-for-dataset"
+    assert run_task_call["cluster"] == "cluster-for-identity"
     assert run_task_call["taskDefinition"] == DEFAULT_TASK_CONFIG["family"]
     assert run_task_call["networkConfiguration"]["awsvpcConfiguration"] == {
         "subnets": [DEFAULT_TASK_CONFIG["subnet_id"]],
