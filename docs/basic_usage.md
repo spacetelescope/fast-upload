@@ -48,8 +48,8 @@ Here is a minimal example of a legal label. The skeleton label you receive
 from MAST will contain at least this information:
 
 ```yaml
-collection: HLSP
-provenance: TESS-SPOC
+collection: hlsp
+provenance: tess-spoc
 delivery_id: 1234
 time:
     delivery_start_date: 2026-11-14
@@ -162,7 +162,8 @@ in the label, but are not automatically filled in by `populate-label`.
 # Toy example
 
 This repository includes a small 'toy' dataset and skeleton label you can use to
-try the local commands of `mast-upload`.
+try the local commands of `mast-upload`. Its label uses the test collection
+`toy` and the example provenance `synthetic`.
 
 For instance, from repository root:
 

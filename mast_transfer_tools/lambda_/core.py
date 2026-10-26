@@ -45,6 +45,7 @@ from mast_transfer_tools.types import (
     LambdaEventParameters,
 )
 import mast_transfer_tools.utilz.name_reference as names
+from mast_transfer_tools.utilz.identity import warn_if_test_collection
 
 
 yload = partial(yaml.load, Loader=yaml.CLoader)
@@ -140,6 +141,8 @@ def run_validation_task(
     See boto3 docs for a more detailed definition of the return type:
     https://docs.aws.amazon.com/boto3/latest/reference/services/ecs/client/run_task.html
     """
+    collection = names.validate_collection(collection)
+    provenance = names.identity_component(provenance)
     kwargblob = encode_kwargs(
         collection=collection, provenance=provenance,
         delivery_id=delivery_id, transfer_type=transfer_type
@@ -204,7 +207,10 @@ def lambda_cleanup(
         try:
             if "dataset" in event:
                 raise ValueError("dataset is no longer supported; use collection and provenance")
-            names.identity_slug(event["collection"], event["provenance"])
+            event = event.copy()
+            event["collection"] = names.validate_collection(event["collection"])
+            event["provenance"] = names.identity_component(event["provenance"])
+            warn_if_test_collection(event["collection"])
             ssm = make_boto_client("ssm")
 
             netconf_response = ssm.get_parameter(
@@ -240,6 +246,8 @@ def unpack_locations(
     collection, provenance, delivery_id, ttype = (
         event[n] for n in ("collection", "provenance", "delivery_id", "transfer_type")
     )
+    collection = names.validate_collection(collection)
+    provenance = names.identity_component(provenance)
     tbucket_name = names.transfer_bucket(
         netconf["BUCKET_STEM"], collection, provenance, delivery_id, ttype
     )

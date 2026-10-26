@@ -65,11 +65,16 @@ A default configuration (`default-task-config.yaml`) provides shared settings.
 Collection/provenance-specific overrides use
 `<collection>/<provenance>-task-config.yaml` beneath `TASK_CONFIG_PREFIX`, for
 example `hlsp/tess-spoc-task-config.yaml`. Path components are lowercase with
-underscores replaced by hyphens, while label metadata retains its original case.
-The selected pair overrides the default values; there is no collection-wide
-override layer. A complete pair-specific configuration can also be used without
+underscores replaced by hyphens, matching normalized label metadata. Changes
+from input values are reported in normalization log notices.
+The selected identity overrides the default values; there is no collection-wide
+override layer. A complete identity-specific configuration can also be used without
 a default. Missing both configurations or a malformed selected configuration
 is an error. Delivery-specific overrides are not supported.
+
+The collection path component must be an allowed collection from the
+[label schema](label_schema.md). Updating task configuration does not add new
+collections; update the `ALLOWED_COLLECTIONS` constants in both repos for that purpose.
 
 Valid parameters in task configuration objects are:
 

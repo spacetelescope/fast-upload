@@ -24,7 +24,7 @@ from typing import (
 )
 
 from mast_transfer_tools.utilz.shims import path_walk
-from mast_transfer_tools.utilz.identity import identity_component
+from mast_transfer_tools.utilz.identity import identity_component, validate_collection
 from mast_transfer_tools.label_meta import (
     DecodingError,
     ExplicitNullT,
@@ -832,10 +832,9 @@ def decode_identity(value: FieldNode, lpath: str) -> str:
         if not isinstance(safe_load(text), str):
             raise DecodingError(lpath, "must be a nonempty string identifier")
     try:
-        identity_component(text)
+        return identity_component(text)
     except ValueError as error:
         raise DecodingError(lpath, str(error)) from error
-    return text
 
 
 class Label(LabelElement):
@@ -865,7 +864,10 @@ class Label(LabelElement):
             if spec[name] == "<name missing>":
                 continue
             try:
-                identity_component(spec[name])
+                if name == "collection":
+                    spec[name] = validate_collection(spec[name])
+                else:
+                    spec[name] = identity_component(spec[name])
             except ValueError as error:
                 errors.append((f"{lpath.rstrip('/')}/{name}", str(error)))
         return errors

@@ -180,6 +180,8 @@ class UploadClient:
         debug: bool = False,
         max_retries: int = 2,
     ) -> None:
+        collection = names.validate_collection(collection)
+        provenance = names.identity_component(provenance)
         if own_agent_id is None:
             self.own_agent_id = "".join(
                 random.choices(ascii_lowercase, k=11)

@@ -6,13 +6,37 @@ Mismatches between the implementation and this document should be considered bug
 
 Labels require separate `collection` (archive collection, e.g. `HLSP`) and
 `provenance` (data source or processing origin, e.g. `TESS-SPOC`) identifiers.
-Both must be nonempty strings containing only ASCII letters, digits, hyphens,
-or underscores, with alphanumeric first and last characters. Values retain
-their original case in labels, delivery records, and messages. Resource names
-and artifact paths lowercase both components and replace underscores with
-hyphens; case/underscore variants therefore share a naming/config identity.
+Leading and trailing whitespace is trimmed from both identifiers. The remaining
+value must be nonempty and contain only ASCII letters, digits, hyphens,
+or underscores, with alphanumeric first and last characters. Both values are
+normalized to lowercase with underscores replaced by hyphens. Parsed labels,
+serialized metadata, delivery records, messages, resource names, and artifact
+paths use these normalized values. When input changes during normalization,
+a log notice shows the original and normalized values; already-normalized
+values do not produce this notice. Case/underscore variants therefore share
+the same identity.
 Complete resource names must fit AWS limits, including prefixes and suffixes;
 overlong names are rejected, not truncated.
+
+The allowed collections are `ccsp`, `hlsp`, `hst`, `jwst`, `k2`, `mccm`,
+`opo`, `ps1`, `roman`, `sdss`, and `tess`. `toy` is also permitted for testing.
+Each label-aware CLI invocation logs one warning that `toy` is test-only and
+is invalid for genuine submission. This includes `populate-label`,
+`report-filetypes`, `validate`, `validate-all`, `check-label`, `index --label`,
+and `transfer`. Commands that do not inspect a label, such as `index` without
+`--label` and `checksum`, do not emit it. During transfer, each upload-init Lambda
+invocation and ECS validator startup also logs one warning. Shared validation
+and naming helpers do not repeat it. Normalization notices are unchanged.
+Test workflows are not blocked. Matching is case-insensitive: `HLSP` and `HlSp` are
+accepted and stored as `hlsp`. Unknown values and aliases are rejected.
+Provenance is not restricted to a predefined list.
+
+The allowlist is the `ALLOWED_COLLECTIONS` constant in
+`mast_transfer_tools/utilz/identity.py`, mirrored in
+`src/mast_fast_sip/naming.py` in fast-sip. Update both constants and their
+expected-value tests together, then rebuild/release both packages and deployed
+validation images. No text file or remote lookup is needed. Existing records with
+unsupported collections are rejected; no automatic conversion is performed.
 
 | keyword | description | YAML type                                                                                                                                                                                                                                                     | required?                                                                                                                                                                                                                |
 | :---- | :---- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
