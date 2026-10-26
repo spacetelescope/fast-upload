@@ -21,6 +21,7 @@ import pytest
 from hypothesis import given, strategies as st
 
 from mast_transfer_tools import labels
+from mast_transfer_tools.utilz.identity import ALLOWED_COLLECTIONS
 from mast_transfer_tools.label_meta import (
     ExplicitNull,
     LabelElement,
@@ -1136,7 +1137,7 @@ def st_good_Label() -> st.SearchStrategy[dict[str, Any]]:
     """
     return st.fixed_dictionaries(
         {
-            "collection": st_identifier(underscore=False).map(lambda value: "C" + value),
+            "collection": st.sampled_from(sorted(ALLOWED_COLLECTIONS)),
             "provenance": st_identifier(underscore=False).map(lambda value: "P" + value),
             "delivery_id": st.one_of(st.integers(), st_identifier()),
             "time": st_good_TimeInfo(),
@@ -1170,8 +1171,8 @@ def check_Label(inp: dict[str, Any], obj: labels.Label) -> None:
     """
     assert obj._errors == []
 
-    assert obj.collection == inp["collection"]
-    assert obj.provenance == inp["provenance"]
+    assert obj.collection == inp["collection"].strip().lower().replace("_", "-")
+    assert obj.provenance == inp["provenance"].strip().lower().replace("_", "-")
     assert obj.delivery_id == inp["delivery_id"]
     assert obj.shared_name_patterns == inp.get("shared_name_patterns", {})
 

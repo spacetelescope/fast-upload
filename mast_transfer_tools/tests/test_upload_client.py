@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
+from unittest.mock import Mock
 
 import pandas as pd
 import pytest
@@ -370,13 +371,26 @@ def assert_lambda_was_invoked_for_upload(fake_session: FakeSession) -> None:
     assert call.function_name == NETCONF_PARAMS["INIT_LAMBDA_ARN"]
 
     payload = call.json_payload
-    assert payload["collection"] == COLLECTION
-    assert payload["provenance"] == PROVENANCE
+    assert payload["collection"] == "hlsp"
+    assert payload["provenance"] == "tess-spoc"
     assert "dataset" not in payload
     assert payload["delivery_id"] == DELIVERY_ID
     assert payload["transfer_type"] == TRANSFER_TYPE
     assert payload["agent_id"] == AGENT_ID
     assert 10000 <= payload["idempotency_key"] <= 99999
+
+
+def test_client_rejects_unknown_collection_before_authentication(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    authenticate = Mock()
+    monkeypatch.setattr(upload_client_mod, "get_authenticated_cognito_manager", authenticate)
+    with pytest.raises(ValueError, match="unrecognized collection"):
+        UploadClient(
+            collection="test", provenance="synthetic", delivery_id=DELIVERY_ID,
+            file_index=pd.DataFrame({"path": []}), transfer_type=TRANSFER_TYPE, source=tmp_path,
+        )
+    authenticate.assert_not_called()
 
 
 def validator_log_text(*rows: tuple[str, str, str, str]) -> str:

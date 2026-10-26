@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 import pandas as pd
@@ -20,10 +21,10 @@ def test_populated_label_default_name_includes_both_fields(
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(main, ["populate-label", str(data_dir), str(label_file)])
     assert result.exit_code == 0, result.output
-    output = tmp_path / "cli-smoke-synthetic-1-populated.yml"
+    output = tmp_path / "toy-synthetic-1-populated.yml"
     assert output.exists()
     parsed = cli_mod.Label.from_file(output)
-    assert parsed.collection == "cli-smoke"
+    assert parsed.collection == "toy"
     assert parsed.provenance == "synthetic"
 
 
@@ -58,6 +59,84 @@ def test_check_label_accepts_minimal_valid_label(
     assert "label ok" in result.output
 
 
+def test_check_label_rejects_unknown_collection(runner: CliRunner, label_file: Path) -> None:
+    label_file.write_text(label_file.read_text().replace("collection: toy", "collection: test"))
+    result = runner.invoke(main, ["check-label", str(label_file)])
+    assert result.exit_code != 0
+    assert "unrecognized collection" in result.output
+    assert "/collection" in result.output
+
+
+def test_check_label_warns_for_test_only_collection(
+    runner: CliRunner, label_file: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    result = runner.invoke(main, ["check-label", str(label_file)])
+    assert result.exit_code == 0, result.output
+    records = [record for record in caplog.records if "test-only" in record.getMessage()]
+    assert len(records) == 1
+
+
+@pytest.mark.parametrize("collection", ["toy", "hlsp"])
+@pytest.mark.parametrize("command", [
+    "populate-label", "report-filetypes", "validate", "validate-all", "check-label", "index",
+])
+def test_preparation_commands_warn_once_per_invocation(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, data_dir: Path,
+    label_file: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture,
+    collection: str, command: str,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    label_file.write_text(label_file.read_text().replace("collection: toy", f"collection: {collection}"))
+    if command == "check-label":
+        args = [command, str(label_file)]
+    elif command == "index":
+        args = [command, str(data_dir), "--label", str(label_file)]
+    elif command == "validate":
+        args = [command, str(data_dir / "a.txt"), str(label_file)]
+    else:
+        args = [command, str(data_dir), str(label_file)]
+    for invocation in range(2):
+        result = runner.invoke(main, args)
+        assert result.exit_code == 0, result.output
+        records = [record for record in caplog.records if "test-only" in record.getMessage()]
+        assert len(records) == (invocation + 1 if collection == "toy" else 0)
+
+
+@pytest.mark.parametrize("collection", ["toy", "hlsp"])
+def test_transfer_warns_once_per_invocation(
+    runner: CliRunner, monkeypatch: pytest.MonkeyPatch, data_dir: Path,
+    label_file: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture, collection: str,
+) -> None:
+    import mast_transfer_tools.upload.upload as upload_mod
+
+    label_file.write_text(label_file.read_text().replace("collection: toy", f"collection: {collection}"))
+    index_file = tmp_path / "index.csv"
+    index_file.write_text("path\na.txt\n")
+
+    def fake_upload(label: cli_mod.Label, transfer_type: str, index: pd.DataFrame, source: Path) -> None:
+        assert cli_mod.identity_slug(label.collection, label.provenance) == f"{collection}-synthetic"
+        assert cli_mod.Label.from_text(label.as_text()).valid
+
+    monkeypatch.setattr(upload_mod, "upload", fake_upload)
+    for invocation in range(2):
+        result = runner.invoke(main, ["transfer", str(data_dir), str(label_file), str(index_file)])
+        assert result.exit_code == 0, result.output
+        records = [record for record in caplog.records if "test-only" in record.getMessage()]
+        assert len(records) == (invocation + 1 if collection == "toy" else 0)
+
+
+def test_check_label_reports_normalization(
+    runner: CliRunner, label_file: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    label_file.write_text(label_file.read_text().replace("collection: toy", "collection: ' HLSP '").replace(
+        "provenance: synthetic", "provenance: TESS_SPOC"
+    ))
+    result = runner.invoke(main, ["check-label", str(label_file)])
+    assert result.exit_code == 0, result.output
+    assert "Normalized identity value ' HLSP ' to 'hlsp'." in caplog.text
+    assert "Normalized identity value 'TESS_SPOC' to 'tess-spoc'." in caplog.text
+
+
 def test_check_label_rejects_bad_label(
     runner: CliRunner,
     tmp_path: Path,
@@ -79,6 +158,7 @@ def test_index_local_directory_contract(
     label_file: Path,
     tmp_path: Path,
     label_option: str | None,
+    caplog: pytest.LogCaptureFixture,
 ) -> None:
     output = tmp_path / "index.csv"
     args = ["index", str(data_dir), "-o", str(output)]
@@ -89,6 +169,8 @@ def test_index_local_directory_contract(
 
     assert result.exit_code == 0, result.output
     assert output.exists()
+    records = [record for record in caplog.records if "test-only" in record.getMessage()]
+    assert len(records) == (1 if label_option is not None else 0)
 
     table = pd.read_csv(output)
 
@@ -248,7 +330,7 @@ def test_validate_reports_failed_validation_as_successful_command(
     label = tmp_path / "label.yml"
     label.write_text("irrelevant because mocked", encoding="utf-8")
 
-    parsed_label = object()
+    parsed_label = SimpleNamespace(collection="hlsp")
 
     monkeypatch.setattr(cli_mod.Label, "from_file", lambda _: parsed_label)
     monkeypatch.setattr(
@@ -296,7 +378,7 @@ def test_validate_all_reports_failed_files_without_failing_command(
     label = tmp_path / "label.yml"
     label.write_text("irrelevant because mocked", encoding="utf-8")
 
-    parsed_label = object()
+    parsed_label = SimpleNamespace(collection="hlsp")
 
     monkeypatch.setattr(cli_mod.Label, "from_file", lambda _: parsed_label)
     monkeypatch.setattr(

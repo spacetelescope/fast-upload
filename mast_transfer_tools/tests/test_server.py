@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 from astropy.io.fits import HDUList, ImageHDU, PrimaryHDU
 from astropy.io.fits import open as fits_open
@@ -33,7 +35,7 @@ from mast_transfer_tools.tests.mock_s3log import (
 )
 from mast_transfer_tools.tests.test_label_parsing import MINIMAL_LABEL_YAML
 
-COLLECTION = "empty"
+COLLECTION = "hlsp"
 PROVENANCE = "synthetic"
 DELIVERY_ID = "0"
 TRANSFER_TYPE = "staging"
@@ -65,17 +67,74 @@ DEFAULT_IDENTIFIERS = {
 }
 
 
-def test_report_contains_raw_identity_and_canonical_label_path() -> None:
-    session = ValidationSession.__new__(ValidationSession)
-    session.identifiers = DEFAULT_IDENTIFIERS | {"collection": "HLSP", "provenance": "TESS-SPOC"}
-    session.vstate = SimpleNamespace(n_completed=0, n_expected_files=0, n_failures=0, done=True)
-    session.exception = None
-    session.errors = {}
-    report = session._format_sqs_report()
-    assert report["collection"] == "HLSP"
-    assert report["provenance"] == "TESS-SPOC"
-    assert "dataset" not in report
-    assert report["label_path"] == f"s3://{CONFIG_BUCKET}/{validation_core_mod.conf.LABEL_PREFIX}/hlsp-tess-spoc-0-label.yaml"
+@pytest.mark.parametrize("collection", ["toy", "hlsp"])
+def test_ecs_startup_warns_once_per_invocation(
+    monkeypatch: pytest.MonkeyPatch, label_file: Path,
+    caplog: pytest.LogCaptureFixture, collection: str,
+) -> None:
+    names = validation_core_mod.names
+    registry = FakeBucketRegistry()
+    config = {"BUCKET_STEM": "mast-fast", "CONFIG_BUCKET": CONFIG_BUCKET, "AVAILABILITY_ZONE_ID": "use1-az1"}
+    control_name = names.control_bucket("mast-fast", collection, "synthetic", "1", "use1-az1")
+    label_key = names.label_key(collection, "synthetic", "1")
+    index_key = names.index_key(collection, "synthetic", "1", TRANSFER_TYPE)
+    text = label_file.read_text().replace("collection: toy", f"collection: {collection}")
+    control = registry.get_or_make(control_name)
+    control.put(text, label_key, literal_str=True)
+    control.put("path,will_transfer\na.txt,True\n", index_key, literal_str=True)
+    registry.get_or_make(CONFIG_BUCKET).put(
+        text, f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True
+    )
+    install_validation_server_fakes(monkeypatch, registry)
+    client = Mock()
+    client.get_parameter.return_value = {"Parameter": {"Value": json.dumps(config)}}
+    monkeypatch.setattr(validation_core_mod, "make_boto_client", lambda *args, **kwargs: client)
+    for invocation in range(2):
+        session = ValidationSession.from_launch_parameters(
+            collection, "synthetic", "1", TRANSFER_TYPE, settings=DEFAULT_VAL_SETTINGS
+        )
+        try:
+            assert session.collection == collection
+            records = [record for record in caplog.records if "test-only" in record.getMessage()]
+            assert len(records) == (invocation + 1 if collection == "toy" else 0)
+        finally:
+            session.vstate.stop()
+            session.manager.exc.shutdown(wait=True, cancel_futures=True)
+            session._pipe_exec.shutdown(wait=True, cancel_futures=True)
+            session.logger.stop()
+
+
+def test_unknown_collection_rejected_before_validator_aws_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    make_client = Mock()
+    monkeypatch.setattr(validation_core_mod, "make_boto_client", make_client)
+    with pytest.raises(ValueError, match="unrecognized collection"):
+        ValidationSession.from_launch_parameters("test", "synthetic", DELIVERY_ID, TRANSFER_TYPE,
+                                                 cb_name=CONTROL_BUCKET, tb_name=TRANSFER_BUCKET)
+    with pytest.raises(ValueError, match="unrecognized collection"):
+        ValidationSession._init_launch_objs(
+            "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET, "test", "synthetic",
+            DELIVERY_ID, DEFAULT_VAL_SETTINGS, TRANSFER_BUCKET, TRANSFER_TYPE,
+        )
+    make_client.assert_not_called()
+
+
+def test_report_contains_normalized_identity_and_canonical_label_path() -> None:
+    identifiers = DEFAULT_IDENTIFIERS | {"collection": " HLSP ", "provenance": " TESS_SPOC "}
+    label = Label.from_text(MINIMAL_LABEL_YAML.replace("toy", "HLSP").replace("synthetic", "TESS_SPOC"))
+    session = ValidationSession(
+        vstate=SimpleNamespace(n_completed=0, n_expected_files=0, n_failures=0, done=True),
+        manager=Mock(), logger=Mock(), settings=DEFAULT_VAL_SETTINGS,
+        identifiers=identifiers, index=pd.DataFrame(), label=label,
+    )
+    try:
+        report = session._format_sqs_report()
+        assert session.collection == report["collection"] == "hlsp"
+        assert session.provenance == report["provenance"] == "tess-spoc"
+        assert identifiers["collection"] == " HLSP "
+        assert "dataset" not in report
+        assert report["label_path"] == f"s3://{CONFIG_BUCKET}/{validation_core_mod.conf.LABEL_PREFIX}/hlsp-tess-spoc-0-label.yaml"
+    finally:
+        session._pipe_exec.shutdown(wait=True)
 
 
 @pytest.mark.parametrize("field", ["collection", "provenance"])
@@ -87,11 +146,12 @@ def test_launch_rejects_mismatched_label_identity(
     control = registry.get_or_make(CONTROL_BUCKET)
     config = registry.get_or_make(CONFIG_BUCKET)
     label_key = validation_core_mod.names.label_key(COLLECTION, PROVENANCE, DELIVERY_ID)
-    changed = MINIMAL_LABEL_YAML.replace(
-        f"{field}: {'empty' if field == 'collection' else 'synthetic'}", f"{field}: other"
-    )
-    control.put(changed if location == "submitted" else MINIMAL_LABEL_YAML, label_key, literal_str=True)
-    config.put(changed if location == "accepted" else MINIMAL_LABEL_YAML,
+    original = COLLECTION if field == "collection" else PROVENANCE
+    replacement = "hst" if field == "collection" else "other"
+    original_text = MINIMAL_LABEL_YAML.replace("collection: toy", f"collection: {COLLECTION}")
+    changed = original_text.replace(f"{field}: {original}", f"{field}: {replacement}")
+    control.put(changed if location == "submitted" else original_text, label_key, literal_str=True)
+    config.put(changed if location == "accepted" else original_text,
                f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True)
     install_validation_server_fakes(monkeypatch, registry)
     kwargs, error, exception = ValidationSession._init_launch_objs(
@@ -104,11 +164,34 @@ def test_launch_rejects_mismatched_label_identity(
     assert error["ref"] == label_key
     kwargs["logger"].stop()
 
+
+def test_launch_normalizes_identity_before_label_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = FakeBucketRegistry()
+    label_key = validation_core_mod.names.label_key("hlsp", "tess-spoc", DELIVERY_ID)
+    text = MINIMAL_LABEL_YAML.replace("collection: toy", "collection: HLSP").replace("synthetic", "TESS_SPOC")
+    registry.get_or_make(CONTROL_BUCKET).put(text, label_key, literal_str=True)
+    registry.get_or_make(CONFIG_BUCKET).put(
+        text.replace("HLSP", "hlsp").replace("TESS_SPOC", "tess-spoc"),
+        f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True
+    )
+    install_validation_server_fakes(monkeypatch, registry)
+    kwargs, error, exception = ValidationSession._init_launch_objs(
+        "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET,
+        " HLSP ", " TESS_SPOC ", DELIVERY_ID,
+        DEFAULT_VAL_SETTINGS, TRANSFER_BUCKET, TRANSFER_TYPE,
+    )
+    assert kwargs["identifiers"]["collection"] == "hlsp"
+    assert kwargs["identifiers"]["provenance"] == "tess-spoc"
+    assert error["ref"] == validation_core_mod.names.index_key("hlsp", "tess-spoc", DELIVERY_ID, TRANSFER_TYPE)
+    assert error["message"]["summary"] == "could not read index"
+    assert exception is not None
+    kwargs["logger"].stop()
+
 FITS_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-collection: empty
+collection: hlsp
 provenance: synthetic
 delivery_id: "0"
 delivery_meta:
@@ -629,7 +712,7 @@ FITS_HOOK_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-collection: empty
+collection: hlsp
 provenance: synthetic
 delivery_id: "0"
 delivery_meta:

@@ -218,6 +218,25 @@ def response_from_lambda(result: str) -> dict[str, Any]:
     return parsed
 
 
+@pytest.mark.parametrize("collection", ["toy", "hlsp"])
+def test_lambda_warns_once_per_invocation(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, collection: str,
+) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    bucket_name = names.control_bucket(
+        NETCONF["BUCKET_STEM"], collection, "tess-spoc", DELIVERY_ID, NETCONF["AVAILABILITY_ZONE_ID"]
+    )
+    bucket = rig.registry.get_or_make(bucket_name)
+    bucket.put(AGENT_ID, names.lock_key("client"), literal_str=True)
+    for invocation in range(2):
+        response = response_from_lambda(lambda_core.main(event(collection=collection), object()))
+        assert response == {"status": "success"}
+        assert names.lock_key("lambda") not in bucket.objects
+        records = [record for record in caplog.records if "test-only" in record.getMessage()]
+        assert len(records) == (invocation + 1 if collection == "toy" else 0)
+    assert len(rig.ecs.run_task_calls) == 2
+
+
 def only_run_task_call(rig: LambdaRig) -> dict[str, Any]:
     assert len(rig.ecs.run_task_calls) == 1
     return rig.ecs.run_task_calls[0]
@@ -268,6 +287,23 @@ def test_lambda_rejects_legacy_identity(monkeypatch: pytest.MonkeyPatch) -> None
     assert rig.ecs.run_task_calls == []
 
 
+def test_lambda_rejects_unknown_collection_before_aws(monkeypatch: pytest.MonkeyPatch) -> None:
+    rig = make_lambda_rig(monkeypatch)
+    response = response_from_lambda(lambda_core.main(event(collection="test"), object()))
+    assert response["status"] == "error"
+    assert rig.ssm.calls == []
+    assert rig.ecs.run_task_calls == []
+    assert all(
+        call["key"] == names.lock_key("client") for call in rig.control_bucket.calls["put"]
+    )
+    assert names.lock_key("lambda") not in rig.control_bucket.objects
+
+
+def test_task_config_rejects_unknown_collection() -> None:
+    with pytest.raises(ValueError, match="unrecognized collection"):
+        names.task_config_key("test", "synthetic")
+
+
 def container_environment(run_task_call: dict[str, Any]) -> dict[str, str]:
     overrides = run_task_call["overrides"]["containerOverrides"]
     assert len(overrides) == 1
@@ -291,7 +327,10 @@ def test_lambda_launches_validation_task_and_cleans_lambda_lock(
 ) -> None:
     rig = make_lambda_rig(monkeypatch)
 
-    response = response_from_lambda(lambda_core.main(event(), object()))
+    parameters = event(collection=" HLSP ", provenance=" TESS_SPOC ")
+    response = response_from_lambda(lambda_core.main(parameters, object()))
+    assert parameters["collection"] == " HLSP "
+    assert parameters["provenance"] == " TESS_SPOC "
 
     assert response == {"status": "success"}
     assert_lambda_lock_was_written_and_removed(rig)
@@ -318,8 +357,8 @@ def test_lambda_launches_validation_task_and_cleans_lambda_lock(
         container_environment(run_task_call)["KWARGBLOB"]
     )
     assert task_kwargs == {
-        "collection": COLLECTION,
-        "provenance": PROVENANCE,
+        "collection": "hlsp",
+        "provenance": "tess-spoc",
         "delivery_id": DELIVERY_ID,
         "transfer_type": TRANSFER_TYPE,
     }

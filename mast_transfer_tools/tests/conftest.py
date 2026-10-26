@@ -4,7 +4,7 @@ from textwrap import dedent
 
 
 LABEL_TEXT = dedent("""\
-    collection: cli-smoke
+    collection: toy
     provenance: synthetic
     delivery_id: 1
     filetypes:

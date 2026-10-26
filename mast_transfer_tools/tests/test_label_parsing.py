@@ -10,6 +10,7 @@ import pytest
 from yaml import load as yaml_load, BaseLoader
 
 from mast_transfer_tools.labels import Label, DeliveryMeta, TimeInfo
+from mast_transfer_tools.tests.test_identity import EXPECTED_COLLECTIONS
 
 
 def check_omitted_label_props(label: Label) -> tuple[DeliveryMeta, TimeInfo]:
@@ -37,7 +38,7 @@ def check_omitted_label_props(label: Label) -> tuple[DeliveryMeta, TimeInfo]:
 # This is the least amount of information you can put in a
 # YAML-form label and have it parse without errors
 MINIMAL_LABEL_YAML = dedent("""\
-    collection: empty
+    collection: toy
     provenance: synthetic
     delivery_id: 0
     time:
@@ -54,7 +55,7 @@ MINIMAL_LABEL_DICT = {
         "archive": [],
         "provider": [],
     },
-    "collection": "empty",
+    "collection": "toy",
     "provenance": "synthetic",
     "delivery_id": "0",
     "delivery_meta": {
@@ -79,7 +80,7 @@ def test_minimal_label_parse() -> None:
     # All the omitted properties should have been filled in.
     dm, tm = check_omitted_label_props(label)
 
-    assert label.collection == "empty"
+    assert label.collection == "toy"
     assert label.provenance == "synthetic"
     assert label.delivery_id == 0
 
@@ -99,10 +100,11 @@ def test_minimal_label_serialize() -> None:
 def test_label_serialize_to_file_rewinds_and_distinguishes_labels() -> None:
     labels = [
         Label.from_text(MINIMAL_LABEL_YAML),
-        Label.from_text(MINIMAL_LABEL_YAML.replace("collection: empty", "collection: other")),
+        Label.from_text(MINIMAL_LABEL_YAML.replace("collection: toy", "collection: hst")),
     ]
     readbacks = []
     for label in labels:
+        assert label.valid
         output = StringIO()
         label.serialize_to_file(output)
         readbacks.append(output.read())
@@ -126,8 +128,8 @@ def test_label_serialize_to_non_seekable_file() -> None:
     assert output.getvalue() == label.as_text()
 
 
-def test_empty_label_parse() -> None:
-    # Parsing the empty string should not crash (but it does produce
+def test_toy_label_parse() -> None:
+    # Parsing the toy string should not crash (but it does produce
     # a label with a bunch of errors flagged).
     label = Label.from_text("")
     assert label.errors == {
@@ -154,7 +156,7 @@ def test_empty_label_parse() -> None:
 @pytest.mark.parametrize("field", ["collection", "provenance"])
 @pytest.mark.parametrize("value", ["null", "123", "true", "[]", "{}", '""', '" "', '"bad/path"'])
 def test_invalid_identity(field: str, value: str) -> None:
-    original = "empty" if field == "collection" else "synthetic"
+    original = "toy" if field == "collection" else "synthetic"
     text = MINIMAL_LABEL_YAML.replace(f"{field}: {original}", f"{field}: {value}")
     label = Label.from_text(text)
     assert not label.valid
@@ -162,10 +164,49 @@ def test_invalid_identity(field: str, value: str) -> None:
 
 
 def test_identity_round_trip_and_legacy_rejection() -> None:
-    text = MINIMAL_LABEL_YAML.replace("empty", "HLSP").replace("synthetic", "TESS-SPOC")
+    text = MINIMAL_LABEL_YAML.replace("toy", "HLSP").replace("synthetic", "TESS-SPOC")
     label = Label.from_text(text)
     assert label.valid
-    assert Label.from_text(label.as_text()).collection == "HLSP"
-    assert Label.from_text(label.as_text()).provenance == "TESS-SPOC"
+    assert Label.from_text(label.as_text()).collection == "hlsp"
+    assert Label.from_text(label.as_text()).provenance == "tess-spoc"
     assert not Label.from_text(text + "dataset: legacy\n").valid
     assert not Label.from_text(text.replace("collection: HLSP", "dataset: legacy")).valid
+
+
+@pytest.mark.parametrize("collection", EXPECTED_COLLECTIONS)
+def test_allowed_collection_round_trip(collection: str) -> None:
+    for value in (collection, collection.upper(), collection.title()):
+        label = Label.from_text(MINIMAL_LABEL_YAML.replace("collection: toy", f"collection: {value}"))
+        assert label.valid, label.errors
+        assert label.collection == collection
+        assert Label.from_text(label.as_text()).collection == collection
+
+
+@pytest.mark.parametrize("collection", ["test", "cli-smoke", "hlps"])
+def test_unsupported_collection_diagnostic(collection: str) -> None:
+    label = Label.from_text(MINIMAL_LABEL_YAML.replace("collection: toy", f"collection: '{collection}'"))
+    assert not label.valid
+    assert set(label.errors) == {"/collection"}
+    if collection.strip() == collection:
+        assert "unrecognized collection" in label.errors["/collection"][0]
+
+
+def test_identity_is_normalized_before_serialization(caplog: pytest.LogCaptureFixture) -> None:
+    text = MINIMAL_LABEL_YAML.replace("collection: toy", "collection: '  HlSp  '").replace(
+        "provenance: synthetic", "provenance: '  TESS_SPOC  '"
+    )
+    label = Label.from_text(text)
+    assert label.valid, label.errors
+    assert label.collection == "hlsp"
+    assert label.provenance == "tess-spoc"
+    parsed = Label.from_text(label.as_text())
+    assert parsed.collection == "hlsp"
+    assert parsed.provenance == "tess-spoc"
+    assert "Normalized identity value '  HlSp  ' to 'hlsp'." in caplog.text
+    assert "Normalized identity value '  TESS_SPOC  ' to 'tess-spoc'." in caplog.text
+
+
+def test_toy_label_validation_does_not_warn(caplog: pytest.LogCaptureFixture) -> None:
+    label = Label.from_text(MINIMAL_LABEL_YAML)
+    assert label.valid, label.errors
+    assert "test-only" not in caplog.text
