@@ -829,7 +829,11 @@ class Filetype(LabelElement):
 def decode_identity(value: FieldNode, lpath: str) -> str:
     text = decode_as_str(value, lpath)
     if isinstance(value, ScalarNode) and value.style is None:
-        if not isinstance(safe_load(text), str):
+        try:
+            parsed = safe_load(text)
+        except ValueError as error:
+            raise DecodingError(lpath, "must be a nonempty string identifier") from error
+        if not isinstance(parsed, str):
             raise DecodingError(lpath, "must be a nonempty string identifier")
     try:
         return identity_component(text)
