@@ -6,7 +6,7 @@ import re
 from typing import Any, Protocol
 
 from mast_transfer_tools.types import TransferType, TransferEntity
-from mast_transfer_tools.utilz.identity import checked_name, identity_component, identity_slug, validate_collection
+from mast_transfer_tools.utilz.identity import checked_name, identity_component, identity_slug
 
 
 class BucketNamer(Protocol):
@@ -124,7 +124,7 @@ def label_key(collection: str, provenance: str, delivery_id: str | int) -> str:
 
 
 def task_config_key(collection: str, provenance: str) -> str:
-    return f"{validate_collection(collection)}/{identity_component(provenance)}-task-config.yaml"
+    return f"{identity_component(collection)}/{identity_component(provenance)}-task-config.yaml"
 
 
 def lock_key(writer: TransferEntity) -> str:

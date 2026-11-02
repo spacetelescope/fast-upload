@@ -18,26 +18,6 @@ the same identity.
 Complete resource names must fit AWS limits, including prefixes and suffixes;
 overlong names are rejected, not truncated.
 
-The allowed collections are `ccsp`, `hlsp`, `hst`, `jwst`, `k2`, `mccm`,
-`opo`, `ps1`, `roman`, `sdss`, and `tess`. `toy` is also permitted for testing.
-Each label-aware CLI invocation logs one warning that `toy` is test-only and
-is invalid for genuine submission. This includes `populate-label`,
-`report-filetypes`, `validate`, `validate-all`, `check-label`, `index --label`,
-and `transfer`. Commands that do not inspect a label, such as `index` without
-`--label` and `checksum`, do not emit it. During transfer, each upload-init Lambda
-invocation and ECS validator startup also logs one warning. Shared validation
-and naming helpers do not repeat it. Normalization notices are unchanged.
-Test workflows are not blocked. Matching is case-insensitive: `HLSP` and `HlSp` are
-accepted and stored as `hlsp`. Unknown values and aliases are rejected.
-Provenance is not restricted to a predefined list.
-
-The allowlist is the `ALLOWED_COLLECTIONS` constant in
-`mast_transfer_tools/utilz/identity.py`, mirrored in
-`src/mast_fast_sip/naming.py` in fast-sip. Update both constants and their
-expected-value tests together, then rebuild/release both packages and deployed
-validation images. No text file or remote lookup is needed. Existing records with
-unsupported collections are rejected; no automatic conversion is performed.
-
 | keyword | description | YAML type                                                                                                                                                                                                                                                     | required?                                                                                                                                                                                                                |
 | :---- | :---- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | collection | archive collection identifier (CAOM collection) | string | yes |

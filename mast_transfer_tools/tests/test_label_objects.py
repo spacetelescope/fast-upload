@@ -21,7 +21,6 @@ import pytest
 from hypothesis import given, strategies as st
 
 from mast_transfer_tools import labels
-from mast_transfer_tools.utilz.identity import ALLOWED_COLLECTIONS
 from mast_transfer_tools.label_meta import (
     ExplicitNull,
     LabelElement,
@@ -1137,7 +1136,7 @@ def st_good_Label() -> st.SearchStrategy[dict[str, Any]]:
     """
     return st.fixed_dictionaries(
         {
-            "collection": st.sampled_from(sorted(ALLOWED_COLLECTIONS)),
+            "collection": st_identifier(underscore=False).map(lambda value: "C" + value),
             "provenance": st_identifier(underscore=False).map(lambda value: "P" + value),
             "delivery_id": st.one_of(st.integers(), st_identifier()),
             "time": st_good_TimeInfo(),

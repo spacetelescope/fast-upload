@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import datetime as dt
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
@@ -65,57 +64,6 @@ DEFAULT_IDENTIFIERS = {
     "transfer_type": TRANSFER_TYPE,
     "agent_id": AGENT_ID,
 }
-
-
-@pytest.mark.parametrize("collection", ["toy", "hlsp"])
-def test_ecs_startup_warns_once_per_invocation(
-    monkeypatch: pytest.MonkeyPatch, label_file: Path,
-    caplog: pytest.LogCaptureFixture, collection: str,
-) -> None:
-    names = validation_core_mod.names
-    registry = FakeBucketRegistry()
-    config = {"BUCKET_STEM": "mast-fast", "CONFIG_BUCKET": CONFIG_BUCKET, "AVAILABILITY_ZONE_ID": "use1-az1"}
-    control_name = names.control_bucket("mast-fast", collection, "synthetic", "1", "use1-az1")
-    label_key = names.label_key(collection, "synthetic", "1")
-    index_key = names.index_key(collection, "synthetic", "1", TRANSFER_TYPE)
-    text = label_file.read_text().replace("collection: toy", f"collection: {collection}")
-    control = registry.get_or_make(control_name)
-    control.put(text, label_key, literal_str=True)
-    control.put("path,will_transfer\na.txt,True\n", index_key, literal_str=True)
-    registry.get_or_make(CONFIG_BUCKET).put(
-        text, f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True
-    )
-    install_validation_server_fakes(monkeypatch, registry)
-    client = Mock()
-    client.get_parameter.return_value = {"Parameter": {"Value": json.dumps(config)}}
-    monkeypatch.setattr(validation_core_mod, "make_boto_client", lambda *args, **kwargs: client)
-    for invocation in range(2):
-        session = ValidationSession.from_launch_parameters(
-            collection, "synthetic", "1", TRANSFER_TYPE, settings=DEFAULT_VAL_SETTINGS
-        )
-        try:
-            assert session.collection == collection
-            records = [record for record in caplog.records if "test-only" in record.getMessage()]
-            assert len(records) == (invocation + 1 if collection == "toy" else 0)
-        finally:
-            session.vstate.stop()
-            session.manager.exc.shutdown(wait=True, cancel_futures=True)
-            session._pipe_exec.shutdown(wait=True, cancel_futures=True)
-            session.logger.stop()
-
-
-def test_unknown_collection_rejected_before_validator_aws_access(monkeypatch: pytest.MonkeyPatch) -> None:
-    make_client = Mock()
-    monkeypatch.setattr(validation_core_mod, "make_boto_client", make_client)
-    with pytest.raises(ValueError, match="unrecognized collection"):
-        ValidationSession.from_launch_parameters("test", "synthetic", DELIVERY_ID, TRANSFER_TYPE,
-                                                 cb_name=CONTROL_BUCKET, tb_name=TRANSFER_BUCKET)
-    with pytest.raises(ValueError, match="unrecognized collection"):
-        ValidationSession._init_launch_objs(
-            "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET, "test", "synthetic",
-            DELIVERY_ID, DEFAULT_VAL_SETTINGS, TRANSFER_BUCKET, TRANSFER_TYPE,
-        )
-    make_client.assert_not_called()
 
 
 def test_report_contains_normalized_identity_and_canonical_label_path() -> None:

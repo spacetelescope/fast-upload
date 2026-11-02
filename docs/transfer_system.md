@@ -131,13 +131,9 @@ Each label requires separate `collection` and `provenance` identifiers with
 the same meanings as their CAOM counterparts. Both appear in normalized
 delivery resource names and label/index keys; normalized values travel
 through upload-init events, ECS launch parameters, and validation SQS reports.
-Collections are checked case-insensitively against the inline allowlist
-before upload or provisioning. Identifiers are trimmed, lowercased, and have
-underscores replaced by hyphens; changed inputs produce a log notice. `toy`
-logs a test-only warning once per label-aware CLI invocation, including
-preparation commands and `transfer`. Each upload-init Lambda invocation and
-ECS validator startup also logs one warning.
-See [the label schema](label_schema.md) for allowed values and identifier requirements.
+Identifiers are trimmed, lowercased, and have
+underscores replaced by hyphens; changed inputs produce a log notice. 
+See [the label schema](label_schema.md) for full identifier requirements.
 
 Every data delivery includes dataset-level metadata in a YAML-formatted “label” file 
 following a fixed schema. see [label_schema.md](label_schema.md) for a 

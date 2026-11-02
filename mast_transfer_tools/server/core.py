@@ -40,7 +40,6 @@ from mast_transfer_tools.s3log.s3tsvreader import S3TSVReader
 from mast_transfer_tools.s3log.s3tsvwriter import S3TSVWriter
 from mast_transfer_tools.s3log.helpers import LOG_FIELD_SPEC
 import mast_transfer_tools.utilz.name_reference as names
-from mast_transfer_tools.utilz.identity import warn_if_test_collection
 from mast_transfer_tools.types import (
     TransferType,
     ValPipeSettings,
@@ -438,7 +437,7 @@ class ValidationSession:
             one or more of the support objects it accepts as arguments.
         """
         identifiers = identifiers.copy()
-        identifiers["collection"] = names.validate_collection(identifiers["collection"])
+        identifiers["collection"] = names.identity_component(identifiers["collection"])
         identifiers["provenance"] = names.identity_component(identifiers["provenance"])
         self.vstate, self.manager, self.logger = vstate, manager, logger
         self.index, self.label = index, label
@@ -482,7 +481,7 @@ class ValidationSession:
         can also be called directly if ad-hoc use of partially-initialized
         helper objects is desired
         """
-        collection = names.validate_collection(collection)
+        collection = names.identity_component(collection)
         provenance = names.identity_component(provenance)
         kw = {} if kw is None else kw
         assert len(kw) == 0, "do not pass a populated mapping as 'kw'"
@@ -631,9 +630,8 @@ class ValidationSession:
         print("constructing ValidationSession from passed parameters\n")
         exc, err_logdict, kw, obj = None, None, {}, None
         try:
-            collection = names.validate_collection(collection)
+            collection = names.identity_component(collection)
             provenance = names.identity_component(provenance)
-            warn_if_test_collection(collection)
             ssm = make_boto_client("ssm")
             response = ssm.get_parameter(
                 Name=conf.NETWORK_CONFIG_PARAMETER,

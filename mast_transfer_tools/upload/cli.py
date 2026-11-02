@@ -22,7 +22,7 @@ from yaml import YAMLError
 from hostess.aws.s3 import Bucket
 from mast_transfer_tools.describe import SUPPORTED_STANDARDS, FileDescription, describe_file
 from mast_transfer_tools.utilz.shims import path_walk
-from mast_transfer_tools.utilz.identity import identity_slug, warn_if_test_collection
+from mast_transfer_tools.utilz.identity import identity_slug
 from mast_transfer_tools.utilz.cli import (
     fatal_oserror,
     fatal_yaml_error,
@@ -144,7 +144,6 @@ def populate_label(
     try:
         parsed_label = Label.from_file(label)
         require_no_label_errors(parsed_label, label)
-        warn_if_test_collection(parsed_label.collection)
     except YAMLError as e:
         fatal_yaml_error(e, label)
     except OSError as e:
@@ -343,7 +342,6 @@ def report_filetypes(
     try:
         parsed_label = Label.from_file(label)
         require_no_label_errors(parsed_label, label)
-        warn_if_test_collection(parsed_label.collection)
     except YAMLError as e:
         fatal_yaml_error(e, label)
     except OSError as e:
@@ -460,7 +458,6 @@ def transfer(
     except OSError as e:
         fatal_oserror(e)
 
-    warn_if_test_collection(parsed_label.collection)
     file_index = pd.read_csv(index_file)
 
     transfer_type = "staging" if not sample else "sample"
@@ -492,7 +489,6 @@ def validate(*, file: str, label: Path, object_check_hook: bool) -> None:
         bucket_name = None
     parsed_label = Label.from_file(label)
     require_no_label_errors(parsed_label, label)
-    warn_if_test_collection(parsed_label.collection)
     msg, success = validate_chatty(
         file, parsed_label, bucket_name, object_check_hook=object_check_hook
     )
@@ -546,7 +542,6 @@ def validate_all(
     try:
         parsed_label = Label.from_file(label)
         require_no_label_errors(parsed_label, label)
-        warn_if_test_collection(parsed_label.collection)
     except YAMLError as e:
         fatal_yaml_error(e, label)
 
@@ -630,7 +625,6 @@ def check_label(label: Path) -> None:
     """Checks a label for syntactic validity."""
     parsed_label = Label.from_file(label)
     require_no_label_errors(parsed_label, label)
-    warn_if_test_collection(parsed_label.collection)
     rprint("[green]label ok")
 
 
@@ -734,7 +728,6 @@ def index(
     if label is not None:
         parsed_label = Label.from_file(label)
         require_no_label_errors(parsed_label, label)
-        warn_if_test_collection(parsed_label.collection)
     else:
         parsed_label = None
 

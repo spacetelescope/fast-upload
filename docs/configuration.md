@@ -72,10 +72,6 @@ override layer. A complete identity-specific configuration can also be used with
 a default. Missing both configurations or a malformed selected configuration
 is an error. Delivery-specific overrides are not supported.
 
-The collection path component must be an allowed collection from the
-[label schema](label_schema.md). Updating task configuration does not add new
-collections; update the `ALLOWED_COLLECTIONS` constants in both repos for that purpose.
-
 Valid parameters in task configuration objects are:
 
 * `cluster`: short name or full ARN of cluster to run task on
