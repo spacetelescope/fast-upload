@@ -1,4 +1,5 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from click.testing import CliRunner
 import pandas as pd
@@ -11,6 +12,20 @@ from mast_transfer_tools.upload.cli import main
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+def test_populated_label_default_name_includes_both_fields(
+    runner: CliRunner, label_file: Path, data_dir: Path, tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    result = runner.invoke(main, ["populate-label", str(data_dir), str(label_file)])
+    assert result.exit_code == 0, result.output
+    output = tmp_path / "toy-synthetic-1-populated.yml"
+    assert output.exists()
+    parsed = cli_mod.Label.from_file(output)
+    assert parsed.collection == "toy"
+    assert parsed.provenance == "synthetic"
 
 
 @pytest.mark.parametrize(
@@ -42,6 +57,18 @@ def test_check_label_accepts_minimal_valid_label(
 
     assert result.exit_code == 0, result.output
     assert "label ok" in result.output
+
+
+def test_check_label_reports_normalization(
+    runner: CliRunner, label_file: Path, caplog: pytest.LogCaptureFixture,
+) -> None:
+    label_file.write_text(label_file.read_text().replace("collection: toy", "collection: ' HLSP '").replace(
+        "provenance: synthetic", "provenance: TESS_SPOC"
+    ))
+    result = runner.invoke(main, ["check-label", str(label_file)])
+    assert result.exit_code == 0, result.output
+    assert "Normalized identity value ' HLSP ' to 'hlsp'." in caplog.text
+    assert "Normalized identity value 'TESS_SPOC' to 'tess-spoc'." in caplog.text
 
 
 def test_check_label_rejects_bad_label(
@@ -234,7 +261,7 @@ def test_validate_reports_failed_validation_as_successful_command(
     label = tmp_path / "label.yml"
     label.write_text("irrelevant because mocked", encoding="utf-8")
 
-    parsed_label = object()
+    parsed_label = SimpleNamespace(collection="hlsp")
 
     monkeypatch.setattr(cli_mod.Label, "from_file", lambda _: parsed_label)
     monkeypatch.setattr(
@@ -282,7 +309,7 @@ def test_validate_all_reports_failed_files_without_failing_command(
     label = tmp_path / "label.yml"
     label.write_text("irrelevant because mocked", encoding="utf-8")
 
-    parsed_label = object()
+    parsed_label = SimpleNamespace(collection="hlsp")
 
     monkeypatch.setattr(cli_mod.Label, "from_file", lambda _: parsed_label)
     monkeypatch.setattr(

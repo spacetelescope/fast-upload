@@ -72,7 +72,7 @@ def noconfig_err_response() -> tuple[str, str]:
     """Error message: no task configuration found"""
     return (
         "task config read",
-        "Neither dataset-specific nor default task configuration "
+        "Neither collection/provenance-specific nor default task configuration "
         "found. This error cannot be addressed by the user. Please "
         "contact system administrators."
     )

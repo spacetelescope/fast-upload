@@ -6,6 +6,7 @@ from datetime import date
 from io import StringIO, UnsupportedOperation
 from textwrap import dedent
 
+import pytest
 from yaml import load as yaml_load, BaseLoader
 
 from mast_transfer_tools.labels import Label, DeliveryMeta, TimeInfo
@@ -36,7 +37,8 @@ def check_omitted_label_props(label: Label) -> tuple[DeliveryMeta, TimeInfo]:
 # This is the least amount of information you can put in a
 # YAML-form label and have it parse without errors
 MINIMAL_LABEL_YAML = dedent("""\
-    dataset: empty
+    collection: toy
+    provenance: synthetic
     delivery_id: 0
     time:
         delivery_start_date: 2025-10-20
@@ -52,7 +54,8 @@ MINIMAL_LABEL_DICT = {
         "archive": [],
         "provider": [],
     },
-    "dataset": "empty",
+    "collection": "toy",
+    "provenance": "synthetic",
     "delivery_id": "0",
     "delivery_meta": {
         "global_validation_options": {
@@ -76,7 +79,8 @@ def test_minimal_label_parse() -> None:
     # All the omitted properties should have been filled in.
     dm, tm = check_omitted_label_props(label)
 
-    assert label.dataset == "empty"
+    assert label.collection == "toy"
+    assert label.provenance == "synthetic"
     assert label.delivery_id == 0
 
     assert dm.schema_version == "0.0.1a0"
@@ -95,10 +99,11 @@ def test_minimal_label_serialize() -> None:
 def test_label_serialize_to_file_rewinds_and_distinguishes_labels() -> None:
     labels = [
         Label.from_text(MINIMAL_LABEL_YAML),
-        Label.from_text(MINIMAL_LABEL_YAML.replace("dataset: empty", "dataset: other")),
+        Label.from_text(MINIMAL_LABEL_YAML.replace("collection: toy", "collection: hst")),
     ]
     readbacks = []
     for label in labels:
+        assert label.valid
         output = StringIO()
         label.serialize_to_file(output)
         readbacks.append(output.read())
@@ -128,7 +133,8 @@ def test_empty_label_parse() -> None:
     label = Label.from_text("")
     assert label.errors == {
         "/": ["wrong type; expected a mapping, not an absent value"],
-        "/dataset": ["must always be defined"],
+        "/collection": ["must always be defined"],
+        "/provenance": ["must always be defined"],
         "/delivery_id": ["must always be defined"],
         "/delivery_meta": ["must always be defined"],
         "/delivery_meta/schema_version": ["must always be defined"],
@@ -138,8 +144,44 @@ def test_empty_label_parse() -> None:
 
     dm, tm = check_omitted_label_props(label)
 
-    assert label.dataset == "<name missing>"
+    assert label.collection == "<name missing>"
+    assert label.provenance == "<name missing>"
     assert label.delivery_id == "<delivery_id missing>"
 
     assert dm.schema_version == "<schema version missing>"
     assert tm.delivery_start_date == date(1900, 1, 1)
+
+
+@pytest.mark.parametrize("field", ["collection", "provenance"])
+@pytest.mark.parametrize("value", ["null", "123", "true", "[]", "{}", '""', '" "', '"bad/path"'])
+def test_invalid_identity(field: str, value: str) -> None:
+    original = "toy" if field == "collection" else "synthetic"
+    text = MINIMAL_LABEL_YAML.replace(f"{field}: {original}", f"{field}: {value}")
+    label = Label.from_text(text)
+    assert not label.valid
+    assert f"/{field}" in label.errors
+
+
+def test_identity_round_trip_and_legacy_rejection() -> None:
+    text = MINIMAL_LABEL_YAML.replace("toy", "HLSP").replace("synthetic", "TESS-SPOC")
+    label = Label.from_text(text)
+    assert label.valid
+    assert Label.from_text(label.as_text()).collection == "hlsp"
+    assert Label.from_text(label.as_text()).provenance == "tess-spoc"
+    assert not Label.from_text(text + "dataset: legacy\n").valid
+    assert not Label.from_text(text.replace("collection: HLSP", "dataset: legacy")).valid
+
+
+def test_identity_is_normalized_before_serialization(caplog: pytest.LogCaptureFixture) -> None:
+    text = MINIMAL_LABEL_YAML.replace("collection: toy", "collection: '  HlSp  '").replace(
+        "provenance: synthetic", "provenance: '  TESS_SPOC  '"
+    )
+    label = Label.from_text(text)
+    assert label.valid, label.errors
+    assert label.collection == "hlsp"
+    assert label.provenance == "tess-spoc"
+    parsed = Label.from_text(label.as_text())
+    assert parsed.collection == "hlsp"
+    assert parsed.provenance == "tess-spoc"
+    assert "Normalized identity value '  HlSp  ' to 'hlsp'." in caplog.text
+    assert "Normalized identity value '  TESS_SPOC  ' to 'tess-spoc'." in caplog.text

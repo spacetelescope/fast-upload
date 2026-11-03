@@ -4,9 +4,24 @@ This document describes the label schema implemented in `mast_transfer_tools.lab
 
 Mismatches between the implementation and this document should be considered bugs.
 
+Labels require separate `collection` (archive collection, e.g. `HLSP`) and
+`provenance` (data source or processing origin, e.g. `TESS-SPOC`) identifiers.
+Leading and trailing whitespace is trimmed from both identifiers. The remaining
+value must be nonempty and contain only ASCII letters, digits, hyphens,
+or underscores, with alphanumeric first and last characters. Both values are
+normalized to lowercase with underscores replaced by hyphens. Parsed labels,
+serialized metadata, delivery records, messages, resource names, and artifact
+paths use these normalized values. When input changes during normalization,
+a log notice shows the original and normalized values; already-normalized
+values do not produce this notice. Case/underscore variants therefore share
+the same identity.
+Complete resource names must fit AWS limits, including prefixes and suffixes;
+overlong names are rejected, not truncated.
+
 | keyword | description | YAML type                                                                                                                                                                                                                                                     | required?                                                                                                                                                                                                                |
 | :---- | :---- |:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|:-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| dataset | identifier for dataset | string                                                                                                                                                                                                                                                        | yes                                                                                                                                                                                                                      |
+| collection | archive collection identifier (CAOM collection) | string | yes |
+| provenance | data source or processing origin (CAOM provenance) | string | yes |
 | delivery\_id | identifier for delivery within dataset | string \| integer                                                                                                                                                                                                                                             | yes                                                                                                                                                                                                                      | yes |
 | time | information on temporal boundaries of delivery | mapping                                                                                                                                                                                                                                                       | yes                                                                                                                                                                                                                      |
 | time/observation\_start\_date | start date of observations | date (normalized to YYYY-MM-DD for string comparison; time of day not allowed)                                                                                                                                                                                | no                                                                                                                                                                                                                       |

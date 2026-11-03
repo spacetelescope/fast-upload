@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence, Callable
 from io import BytesIO
+from types import SimpleNamespace
+from unittest.mock import Mock
 
 from astropy.io.fits import HDUList, ImageHDU, PrimaryHDU
 from astropy.io.fits import open as fits_open
@@ -32,7 +34,8 @@ from mast_transfer_tools.tests.mock_s3log import (
 )
 from mast_transfer_tools.tests.test_label_parsing import MINIMAL_LABEL_YAML
 
-DATASET = "empty"
+COLLECTION = "hlsp"
+PROVENANCE = "synthetic"
 DELIVERY_ID = "0"
 TRANSFER_TYPE = "staging"
 CONFIG_BUCKET = "config-bucket"
@@ -55,17 +58,89 @@ DEFAULT_IDENTIFIERS = {
     "confb_name": CONFIG_BUCKET,
     "cb_name": CONTROL_BUCKET,
     "tb_name": TRANSFER_BUCKET,
-    "dataset": DATASET,
+    "collection": COLLECTION,
+    "provenance": PROVENANCE,
     "delivery_id": DELIVERY_ID,
     "transfer_type": TRANSFER_TYPE,
     "agent_id": AGENT_ID,
 }
 
+
+def test_report_contains_normalized_identity_and_canonical_label_path() -> None:
+    identifiers = DEFAULT_IDENTIFIERS | {"collection": " HLSP ", "provenance": " TESS_SPOC "}
+    label = Label.from_text(MINIMAL_LABEL_YAML.replace("toy", "HLSP").replace("synthetic", "TESS_SPOC"))
+    session = ValidationSession(
+        vstate=SimpleNamespace(n_completed=0, n_expected_files=0, n_failures=0, done=True),
+        manager=Mock(), logger=Mock(), settings=DEFAULT_VAL_SETTINGS,
+        identifiers=identifiers, index=pd.DataFrame(), label=label,
+    )
+    try:
+        report = session._format_sqs_report()
+        assert session.collection == report["collection"] == "hlsp"
+        assert session.provenance == report["provenance"] == "tess-spoc"
+        assert identifiers["collection"] == " HLSP "
+        assert "dataset" not in report
+        assert report["label_path"] == f"s3://{CONFIG_BUCKET}/{validation_core_mod.conf.LABEL_PREFIX}/hlsp-tess-spoc-0-label.yaml"
+    finally:
+        session._pipe_exec.shutdown(wait=True)
+
+
+@pytest.mark.parametrize("field", ["collection", "provenance"])
+@pytest.mark.parametrize("location", ["submitted", "accepted"])
+def test_launch_rejects_mismatched_label_identity(
+    monkeypatch: pytest.MonkeyPatch, field: str, location: str
+) -> None:
+    registry = FakeBucketRegistry()
+    control = registry.get_or_make(CONTROL_BUCKET)
+    config = registry.get_or_make(CONFIG_BUCKET)
+    label_key = validation_core_mod.names.label_key(COLLECTION, PROVENANCE, DELIVERY_ID)
+    original = COLLECTION if field == "collection" else PROVENANCE
+    replacement = "hst" if field == "collection" else "other"
+    original_text = MINIMAL_LABEL_YAML.replace("collection: toy", f"collection: {COLLECTION}")
+    changed = original_text.replace(f"{field}: {original}", f"{field}: {replacement}")
+    control.put(changed if location == "submitted" else original_text, label_key, literal_str=True)
+    config.put(changed if location == "accepted" else original_text,
+               f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True)
+    install_validation_server_fakes(monkeypatch, registry)
+    kwargs, error, exception = ValidationSession._init_launch_objs(
+        "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET,
+        COLLECTION, PROVENANCE, DELIVERY_ID, DEFAULT_VAL_SETTINGS,
+        TRANSFER_BUCKET, TRANSFER_TYPE,
+    )
+    assert isinstance(exception, validation_core_mod.InvalidLabelError)
+    assert "identity does not match" in str(exception)
+    assert error["ref"] == label_key
+    kwargs["logger"].stop()
+
+
+def test_launch_normalizes_identity_before_label_comparison(monkeypatch: pytest.MonkeyPatch) -> None:
+    registry = FakeBucketRegistry()
+    label_key = validation_core_mod.names.label_key("hlsp", "tess-spoc", DELIVERY_ID)
+    text = MINIMAL_LABEL_YAML.replace("collection: toy", "collection: HLSP").replace("synthetic", "TESS_SPOC")
+    registry.get_or_make(CONTROL_BUCKET).put(text, label_key, literal_str=True)
+    registry.get_or_make(CONFIG_BUCKET).put(
+        text.replace("HLSP", "hlsp").replace("TESS_SPOC", "tess-spoc"),
+        f"{validation_core_mod.conf.LABEL_PREFIX}/{label_key}", literal_str=True
+    )
+    install_validation_server_fakes(monkeypatch, registry)
+    kwargs, error, exception = ValidationSession._init_launch_objs(
+        "mast-fast", CONFIG_BUCKET, "use1-az4", CONTROL_BUCKET,
+        " HLSP ", " TESS_SPOC ", DELIVERY_ID,
+        DEFAULT_VAL_SETTINGS, TRANSFER_BUCKET, TRANSFER_TYPE,
+    )
+    assert kwargs["identifiers"]["collection"] == "hlsp"
+    assert kwargs["identifiers"]["provenance"] == "tess-spoc"
+    assert error["ref"] == validation_core_mod.names.index_key("hlsp", "tess-spoc", DELIVERY_ID, TRANSFER_TYPE)
+    assert error["message"]["summary"] == "could not read index"
+    assert exception is not None
+    kwargs["logger"].stop()
+
 FITS_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-dataset: empty
+collection: hlsp
+provenance: synthetic
 delivery_id: "0"
 delivery_meta:
   schema_version: "0.0.1a0"
@@ -585,7 +660,8 @@ FITS_HOOK_LABEL_YAML = """
 contacts:
   archive: []
   provider: []
-dataset: empty
+collection: hlsp
+provenance: synthetic
 delivery_id: "0"
 delivery_meta:
   schema_version: "0.0.1a0"
