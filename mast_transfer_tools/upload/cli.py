@@ -746,10 +746,10 @@ def index(
         from hostess.aws.s3 import Bucket
 
         bucket_name = source.replace("s3://", "")
+        prefix = ""
         if "/" in bucket_name:
-            prefix = bucket_name.split("/", maxsplit=1)[1].strip("/") + "/"
-        else:
-            prefix = ""
+            bucket_name, prefix = bucket_name.split("/", maxsplit=1)
+            prefix = prefix.strip("/") + "/"
         bucket = Bucket(bucket_name)
         require_bucket(bucket)
         directory = bucket.ls(prefix, recursive=True, formatting="df")
